@@ -58,3 +58,36 @@ def test_release_cache_callback_frees_the_cache_after_every_step() -> None:
     cb.on_step_end(None, None, None)
     cb.on_step_end(None, None, None)
     assert len(calls) == 2
+
+
+def _hide_accelerators(monkeypatch) -> None:
+    import torch
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+
+
+def test_bf16_supported_is_false_on_cpu(monkeypatch) -> None:
+    from post_training.train.common import bf16_supported
+
+    _hide_accelerators(monkeypatch)
+    assert bf16_supported() is False
+
+
+def test_bf16_supported_is_true_on_mps(monkeypatch) -> None:
+    import torch
+
+    from post_training.train.common import bf16_supported
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+    assert bf16_supported() is True
+
+
+def test_sft_args_build_without_bf16_on_cpu(monkeypatch, tmp_path) -> None:
+    from post_training.config import SftConfig
+    from post_training.train.sft import build_sft_args
+
+    _hide_accelerators(monkeypatch)
+    args = build_sft_args(SftConfig(model_name="m", output_dir=str(tmp_path)), 2000)
+    assert args.bf16 is False
