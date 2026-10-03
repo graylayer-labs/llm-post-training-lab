@@ -8,8 +8,11 @@ harness came in
 The reasons behind each setting are in [decisions.md](decisions.md).
 
 This is one run with one seed, scored by perplexity, ROUGE-L and a rule-based
-rubric. There is no model judge, so nothing here says whether an answer is
-correct. See Limits.
+rubric. None of those says whether an answer is correct. A blind check of
+50 of the prompts, graded by two model graders, does; it is in "Blind
+correctness check" below
+([#35](https://github.com/graylayer-labs/llm-post-training-lab/issues/35)).
+See Limits.
 
 ## How these numbers were made
 
@@ -260,7 +263,8 @@ loops far less. The evidence also fits "shorter" being part of what it
 learned. Its answers are shorter on prompts SFT already finished, and
 slightly further from the references there. This run cannot separate "do
 not loop" from "be short": that would need pairs whose chosen and rejected
-answers have similar lengths.
+answers have similar lengths. Whether the answers also got more *correct*
+is a separate question, taken up in "Blind correctness check".
 
 ### Three examples
 
@@ -324,6 +328,181 @@ effective presentation."
 The usual pattern: SFT made the answer usable, and DPO kept SFT's opening
 and wrote a slightly shorter answer with less repeated wording.
 
+## Blind correctness check
+
+The rubric checks how an answer behaves, not whether it is right. Issue
+[#35](https://github.com/graylayer-labs/llm-post-training-lab/issues/35)
+grades 50 of the 200 held-out prompts for correctness, blind, with two
+model graders. **The grading was done by models, not by a person.**
+
+### Method
+
+- **The sheet.** `tools/blind_grading.py sheet` (code from
+  [#37](https://github.com/graylayer-labs/llm-post-training-lab/issues/37))
+  picked 50 of the 200 prompts with seed 0 and wrote
+  `outputs/grading/v1/sheet.jsonl` at commit `66b837b` on `main`, clean
+  tree (`key.json`, `provenance`). Each line holds only the prompt index,
+  the prompt, the reference answer and the three systems' answers from
+  `outputs/eval/generations`, under labels A, B and C. The label order is
+  shuffled per prompt by a seeded shuffle, so a label says nothing about the
+  system. No token count, stop flag or system name is on the sheet. The
+  label-to-system mapping and each answer's rubric result are kept apart,
+  in `key.json`.
+- **The graders.** Two Claude subagents on different models, one Opus and
+  one Sonnet, each graded all 150 answers on its own, without the key or
+  the other's grades. Their grades are `grades_opus.jsonl` and
+  `grades_sonnet.jsonl`, one line per prompt and label, each with a reason.
+- **The grades.** Each answer is graded against the reference as
+  `correct`, `partly` or `wrong`. The graders' full instructions were given
+  in their agent briefs and are not saved beside the grades; the saved
+  reasons show how the grades were applied. An answer whose right content
+  sits inside a loop can be graded `partly`, so `partly` mixes "incomplete"
+  with "right but looping" (see "Limits of the check").
+- **Unblinding.** `tools/blind_grading.py unblind` validates every grade
+  (each prompt and label exactly once, a known grade, a non-empty reason),
+  maps labels back to systems with the key and writes `results.json` and
+  `results.md`. It ran at commit `66b837b` on `main`, clean tree
+  (`results.json`, `provenance`). Intervals are 95% percentile bootstrap,
+  1,000 resamples, bootstrap seed 0. The paired differences resample
+  prompts and keep each prompt's three answers together.
+
+```bash
+uv run python tools/blind_grading.py sheet \
+    --gens-dir outputs/eval/generations --rows outputs/sft/eval_rows.json \
+    --n 50 --seed 0 --out outputs/grading/v1
+uv run python tools/blind_grading.py unblind --dir outputs/grading/v1 \
+    --grades outputs/grading/v1/grades_opus.jsonl \
+    --grades outputs/grading/v1/grades_sonnet.jsonl
+```
+
+### Results
+
+From `outputs/grading/v1/results.md`. Each cell is rate (count/50) [95%
+interval].
+
+| System | Opus: correct | Opus: correct or partly | Sonnet: correct | Sonnet: correct or partly |
+|---|---|---|---|---|
+| base | 10.0% (5/50) [2.0, 20.0] | 30.0% (15/50) [16.0, 44.0] | 12.0% (6/50) [4.0, 22.0] | 28.0% (14/50) [16.0, 40.0] |
+| sft | 30.0% (15/50) [18.0, 42.0] | 66.0% (33/50) [52.0, 78.0] | 30.0% (15/50) [18.0, 42.0] | 72.0% (36/50) [60.0, 84.0] |
+| dpo | 44.0% (22/50) [30.0, 58.0] | 72.0% (36/50) [60.0, 84.0] | 48.0% (24/50) [34.0, 62.0] | 78.0% (39/50) [66.0, 88.0] |
+
+Paired difference in the correct rate, same 50 prompts, 95% interval:
+
+| Difference | Opus | Sonnet |
+|---|---|---|
+| sft − base | +20.0 points [+6.0, +34.0] | +18.0 points [+4.0, +32.0] |
+| dpo − sft | +14.0 points [+0.0, +28.0] | +18.0 points [+6.0, +28.0] |
+
+Both graders put the systems in the same order: base, then SFT, then DPO.
+SFT's gain over base excludes zero for both. DPO's gain over SFT excludes
+zero for Sonnet; for Opus the interval's lower end is exactly 0.0.
+
+**Agreement.** Over all 150 graded answers the two graders gave the same
+grade on 84.0%, Cohen's kappa 0.756 (`results.json`, `agreement`). They
+agree well, but they are two models from one family, so agreement is not
+evidence that either is right (see "Limits of the check").
+
+### Passing the rubric is not being correct
+
+Of the 50 prompts, the rubric passes 13 base answers, 35 SFT answers and 47
+DPO answers (`results.md`, the n in each split). Among the answers that pass
+the rubric, the share graded correct is low:
+
+| System | Opus: correct among rubric passes | Sonnet: correct among rubric passes |
+|---|---|---|
+| base | 30.8% (4/13) [7.7, 61.5] | 38.5% (5/13) [15.4, 69.2] |
+| sft | 34.3% (12/35) [20.0, 51.4] | 40.0% (14/35) [25.7, 57.1] |
+| dpo | 46.8% (22/47) [31.9, 61.7] | 51.1% (24/47) [36.2, 66.0] |
+
+So most SFT answers that pass every rubric rule are not graded correct. The
+rubric measures stopping and looping; it is not a proxy for correctness.
+Answers that fail the rubric are rarely correct: SFT 3/15 (Opus) and 1/15
+(Sonnet), DPO 0/3 for both.
+
+### Correct, or just not looping?
+
+A loop is graded `wrong` or at best `partly`, and DPO loops far less than
+SFT. So DPO's higher correct rate could come only from not looping. To
+separate the two, the paired difference is repeated on only the prompts
+where the rubric's overall rule passes *both* systems, so a looping or
+truncated answer is out on both sides.
+
+From `outputs/grading/v1/subset.json`, written by
+`tools/blind_grading.py subset`. **It was computed at branch commit
+`b3b5567` on `docs/35-grading-results`, clean tree (`provenance` in the
+file), before merge;** it is to be re-run from `main` after merge. Same
+bootstrap settings as above.
+
+| Both pass the rubric | n | Opus: correct, a vs b | Opus: b − a | Sonnet: correct, a vs b | Sonnet: b − a |
+|---|---|---|---|---|---|
+| dpo − sft | 35 | 12 vs 15 | +8.6 points [−8.6, +22.9] | 14 vs 18 | +11.4 points [+0.0, +25.7] |
+| sft − base | 8 | 4 vs 3 | −12.5 points [−37.5, +0.0] | 5 vs 4 | −12.5 points [−37.5, +0.0] |
+
+```bash
+uv run python tools/blind_grading.py subset --dir outputs/grading/v1 \
+    --grades outputs/grading/v1/grades_opus.jsonl \
+    --grades outputs/grading/v1/grades_sonnet.jsonl \
+    --discarded outputs/grading/v1/discarded/grades_sonnet_shortcut.jsonl
+```
+
+**Reading.** On the 35 prompts where neither SFT nor DPO fails the rubric
+(every prompt SFT passes, DPO also passes), DPO is still ahead for both
+graders, by 3 prompts (Opus) and 4 (Sonnet). The intervals reach zero for
+both: −8.6 to +22.9 for Opus, and a lower end of exactly 0.0 for Sonnet.
+So the point estimates say DPO's gain is not only "stopped looping", but 35
+prompts are too few to show it. The rest of the gain is on the 15 prompts
+where SFT's answer failed the rubric, mostly loops. For Opus, DPO has 7
+more correct answers than SFT overall (22 against 15), 3 of them on the
+both-pass prompts and so 4 on those 15; for Sonnet, 9 more (24 against
+15), 4 and 5. That split is arithmetic on `results.json` and
+`subset.json`. For SFT against base only 8 prompts pass the rubric for
+both, too few to read; SFT's gain over base comes from prompts where base
+failed the rubric, mostly by not stopping.
+
+The rubric is not a clean "does not loop" filter: a short loop can pass it
+(index 29 above), and it also checks format and, on finance rows, terms and
+figures. The subset removes long loops and truncations, not every loop.
+
+### A discarded grader attempt
+
+The first Sonnet grading was thrown away. The grader reported that it had
+judged mostly from the first ~300 characters of each answer and from the
+answer's length, and had graded partly with a script rather than by
+reading. That is a process failure: a grader that looks at length is
+measuring the thing DPO changed most, not correctness. The lead session
+discarded the file and ran a new Sonnet grader, told to read every answer
+in full and grade by hand, in batches. The kept `grades_sonnet.jsonl` is
+that rerun.
+
+The discarded grades are kept at
+`outputs/grading/v1/discarded/grades_sonnet_shortcut.jsonl` and feed no
+result above. `subset.json` (`discarded`) only describes how they differ.
+Its 150 reasons use 3 distinct strings, one per grade, such as "Wrong,
+off-topic or degenerate.". It marks 6, 12 and 16 answers correct for base,
+SFT and DPO, against 6, 15 and 24 in the rerun. It agrees with the Opus
+grades on 78.7% (kappa 0.671) and with the rerun on 74.7% (kappa 0.613),
+below the 84.0% (kappa 0.756) between the two kept graders.
+
+### Limits of the check
+
+- **50 prompts.** Intervals are wide, up to 28 points for one system's
+  correct rate, and one prompt moves a rate by 2 points.
+- **Model graders, not a person.** Both graders are Claude models. They
+  may share biases with each other, so their agreement can overstate how
+  reliable the grades are. Nobody checked the grades by hand.
+- **Blind to the label, not to the style.** The sheet hides which system
+  wrote an answer, but a 384-token loop or a 12-token reply is visible. A
+  grader can see degeneracy and length, and DPO's answers are the shortest.
+  The discarded attempt shows a grader can lean on exactly those cues.
+- **One seed.** The answers come from one greedy decode of one run per
+  stage.
+- **`partly` mixes two things.** An answer with right content inside a loop
+  can be graded `partly`, so "correct or partly" entangles correctness with
+  looping. The `correct` rate is the cleaner measure, and the both-pass
+  subset is the attempt to separate the two.
+- **Grader instructions not saved.** The briefs given to the graders are
+  not in `outputs/grading/v1`; only their grades and reasons are.
+
 ## Limits
 
 - **One seed, one run.** Every system was decoded once, greedily. Small
@@ -341,11 +520,13 @@ and wrote a slightly shorter answer with less repeated wording.
   forum posts ("See Berkshire Hathaway Inc. (BRK-A)… welcome to SE"). A
   good answer in a different style scores low. ROUGE-L measures overlap
   with one reference, not quality.
-- **No model judge.** The owner dropped the judge
+- **No model judge on the 200.** The owner dropped the paid judge
   ([#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3),
-  decisions.md, "Evaluate without a model judge"). Nothing scores
-  correctness or completeness. The rubric passed DPO's wrong algebra
-  (index 50) and its half-answer on renewables (index 2).
+  decisions.md, "Evaluate without a model judge"). Nothing in the table
+  scores correctness or completeness. The rubric passed DPO's wrong algebra
+  (index 50) and its half-answer on renewables (index 2). Correctness is
+  checked only on 50 prompts, by model graders, in "Blind correctness
+  check", with its own limits.
 - **Batch size 16.** Answers were decoded in batches of 16 with left
   padding. In bf16 on MPS this flips near-tied tokens, so the answers are
   not bit-identical to one-at-a-time decoding. Every system was decoded the
