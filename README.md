@@ -33,7 +33,7 @@ flowchart LR
 2. **LoRA SFT** on 2,000 rows of `gbharti/finance-alpaca`. The loss covers the
    answer only.
 3. **DPO** on preference pairs built from the project's own data, with the SFT
-   model as reference. Planned.
+   model as reference.
 4. **Evaluation** of base, SFT and DPO on the same 200 held-out prompts:
    perplexity, ROUGE-L and a rule-based rubric, with no model judge. The
    harness is built; the full run is pending.
@@ -68,8 +68,8 @@ and on the [project board](https://github.com/orgs/graylayer-labs/projects/3).
 | Part | Issue | State |
 |---|---|---|
 | 1. LoRA SFT | [#1](https://github.com/graylayer-labs/llm-post-training-lab/issues/1) | Done. Clean re-run in [#12](https://github.com/graylayer-labs/llm-post-training-lab/issues/12) |
-| 2. DPO | [#2](https://github.com/graylayer-labs/llm-post-training-lab/issues/2) | Not started |
-| 3. Evaluation harness | [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3) | Harness built (#23); full three-system run pending DPO |
+| 2. DPO | [#2](https://github.com/graylayer-labs/llm-post-training-lab/issues/2) | Done. Pairs and DPO run at commit `0263788`; see [docs/dpo-results.md](docs/dpo-results.md) |
+| 3. Evaluation harness | [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3) | Harness built (#23); full three-system run in progress |
 | 4. Write-up | [#4](https://github.com/graylayer-labs/llm-post-training-lab/issues/4) | Not started |
 
 Supporting tasks, all done: run provenance
@@ -81,15 +81,17 @@ de-duplicated split
 stop-token probe
 ([#19](https://github.com/graylayer-labs/llm-post-training-lab/issues/19)),
 crash-safe checkpoints
-([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21)) and
+([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21)),
 the eval harness code
-([#23](https://github.com/graylayer-labs/llm-post-training-lab/issues/23)). The
+([#23](https://github.com/graylayer-labs/llm-post-training-lab/issues/23)) and
+the pairs and DPO code
+([#26](https://github.com/graylayer-labs/llm-post-training-lab/issues/26)). The
 follow-along guide is
 [#13](https://github.com/graylayer-labs/llm-post-training-lab/issues/13).
 
 ## Results so far
 
-Part 1 only. One run, one seed, on an Apple M4 laptop (MPS), at commit
+Part 1, LoRA SFT: one run, one seed, on an Apple M4 laptop (MPS), at commit
 `76739e6` on a clean tree with a de-duplicated split. Full detail is in
 [docs/sft-results.md](docs/sft-results.md).
 
@@ -110,6 +112,18 @@ Part 1 only. One run, one seed, on an Apple M4 laptop (MPS), at commit
   every step.
 - SFT answers still fall into repetition loops in the Part 1 samples. The
   re-run has no generated answers yet; the eval harness will score them.
+
+Part 2, DPO, at commit `0263788`: one run, one seed, 105 preference pairs.
+These figures are on 10 held-out *pairs* drawn from training prompts, a
+check that DPO fits the pairs. They are not the evaluation, which is
+[#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3).
+Full detail is in [docs/dpo-results.md](docs/dpo-results.md).
+
+- DPO loss on the 10 held-out pairs fell from 0.693 to 0.058.
+- On those pairs the rejected answers' log-probability fell (summed,
+  -64.718 to -123.960) while the chosen answers' barely moved (-281.671
+  to -286.481). DPO lowered the loops rather than pushing both answers
+  down.
 
 ## Quickstart
 
@@ -136,8 +150,13 @@ uv run python tools/memory_lora_vs_full.py --mode lora --rank 16
 uv run python tools/memory_lora_vs_full.py --mode full
 ```
 
-`lab dpo` exists as a command but exits with "not implemented yet" until
-Part 2 lands.
+Part 2 builds preference pairs from greedy SFT answers, then trains DPO on
+them:
+
+```bash
+uv run lab pairs --config configs/pairs.yaml
+uv run lab dpo --config configs/dpo.yaml
+```
 
 Each run writes `summary.json`, the eval rows and the adapter to its
 `output_dir`.
@@ -151,12 +170,16 @@ uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run
 ## Repo layout
 
 ```
-configs/            one YAML file per run (sft, eval and their smoke variants)
+configs/            one YAML file per run (sft, pairs, dpo, eval and their
+                    smoke variants)
 src/post_training/
-  cli.py            the `lab` command: sft, dpo, eval
+  cli.py            the `lab` command: sft, pairs, dpo, eval
   config.py         typed dataclasses loaded from YAML
   data/finance.py   load, filter, split and render rows as chat messages
   train/sft.py      LoRA SFT with TRL's SFTTrainer
+  train/pairs.py    preference pairs from greedy SFT answers and the rubric
+  train/dpo.py      DPO on the merged SFT model with TRL's DPOTrainer
+  train/checkpoint.py  checkpoint and resume, shared by SFT and DPO
   train/common.py   model loading, memory sampling, cache release
   generate.py       batched, left-padded generation with shared stop tokens
   run.py            run provenance: commit, tree state, library versions
