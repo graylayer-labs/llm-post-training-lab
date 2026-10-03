@@ -9,6 +9,10 @@ each links to the issue that holds the detail.
 ### 2026-10-03
 
 **Added**
+- `tools/compare_systems.py` compares saved eval generations between
+  systems on CPU: length distributions, rubric rates among answers that
+  stopped, and like-for-like subsets. Output carries run provenance.
+  ([#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3))
 - Every `summary.json` now records a `provenance` block (commit, tree state,
   library versions) and marks a dirty-tree run as scratch. A shared batched
   generator was added alongside it. ([#10](https://github.com/graylayer-labs/llm-post-training-lab/issues/10))
@@ -34,6 +38,17 @@ each links to the issue that holds the detail.
   finance-alpaca loader.
 
 **Result**
+- Full eval at commit `76c9086`, 200 held-out prompts, greedy, batch 16,
+  one seed. Rubric pass overall: base 35.0%, SFT 73.0%, DPO 89.0%. Stopped:
+  39.5%, 86.5%, 100%. Mean new tokens: 270.0, 111.6, 51.9. Perplexity of
+  the references: 8.910, 6.245, 6.555. ROUGE-L: 0.153, 0.297, 0.296. Wall
+  time 1,562.8 s, contended by other GPU jobs. No model judge.
+  ([results](docs/eval-results.md), [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3))
+- Length check on the saved generations at commit `b872427`: DPO's answers
+  are shorter than SFT's even where SFT already stopped (50.4 against 69.1
+  mean tokens on 173 prompts), with slightly lower ROUGE-L there (0.314
+  against 0.330). DPO's gain is plausibly partly "shorter", not only "no
+  loops". ([results](docs/eval-results.md), [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3))
 - DPO on top of SFT at commit `0263788`: 105 pairs from 500 greedy SFT
   answers on training prompts, 104 of them rejected for repetition loops.
   On 10 held-out pairs, a fit check and not the eval, DPO loss fell from

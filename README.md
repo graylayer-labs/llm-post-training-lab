@@ -35,8 +35,8 @@ flowchart LR
 3. **DPO** on preference pairs built from the project's own data, with the SFT
    model as reference.
 4. **Evaluation** of base, SFT and DPO on the same 200 held-out prompts:
-   perplexity, ROUGE-L and a rule-based rubric, with no model judge. The
-   harness is built; the full run is pending.
+   perplexity, ROUGE-L and a rule-based rubric, with no model judge. See
+   [docs/eval-results.md](docs/eval-results.md).
 
 ## Why this approach
 
@@ -69,7 +69,7 @@ and on the [project board](https://github.com/orgs/graylayer-labs/projects/3).
 |---|---|---|
 | 1. LoRA SFT | [#1](https://github.com/graylayer-labs/llm-post-training-lab/issues/1) | Done. Clean re-run in [#12](https://github.com/graylayer-labs/llm-post-training-lab/issues/12) |
 | 2. DPO | [#2](https://github.com/graylayer-labs/llm-post-training-lab/issues/2) | Done. Pairs and DPO run at commit `0263788`; see [docs/dpo-results.md](docs/dpo-results.md) |
-| 3. Evaluation harness | [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3) | Harness built (#23); full three-system run in progress |
+| 3. Evaluation harness | [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3) | Done. Full run at commit `76c9086`; see [docs/eval-results.md](docs/eval-results.md) |
 | 4. Write-up | [#4](https://github.com/graylayer-labs/llm-post-training-lab/issues/4) | Not started |
 
 Supporting tasks, all done: run provenance
@@ -124,6 +124,25 @@ Full detail is in [docs/dpo-results.md](docs/dpo-results.md).
   -64.718 to -123.960) while the chosen answers' barely moved (-281.671
   to -286.481). DPO lowered the loops rather than pushing both answers
   down.
+
+Part 3, evaluation, at commit `76c9086`: base, SFT and DPO on the same 200
+held-out prompts, greedy, at most 384 new tokens, one seed, no model judge.
+From `outputs/eval/results.md`. Full detail and limits are in
+[docs/eval-results.md](docs/eval-results.md).
+
+| System | Rubric pass, overall (95% interval) | Stopped | Mean new tokens | Perplexity of references |
+|---|---|---|---|---|
+| base | 35.0% (70/200) [28.5, 41.5] | 39.5% | 270.0 | 8.910 |
+| SFT | 73.0% (146/200) [66.5, 79.0] | 86.5% | 111.6 | 6.245 |
+| DPO | 89.0% (178/200) [84.5, 93.0] | 100.0% | 51.9 | 6.555 |
+
+- SFT taught the model to stop and roughly doubled ROUGE-L against the
+  references (0.153 to 0.297).
+- DPO made every answer stop and cut repetition, but also halved answer
+  length. ROUGE-L stayed flat (0.297 to 0.296), and on the 173 prompts
+  where SFT already stopped, DPO's answers are shorter and slightly further
+  from the references (`outputs/eval/analysis.json`). Some of DPO's gain is
+  plausibly "shorter", not only "no loops".
 
 ## Quickstart
 
@@ -185,7 +204,8 @@ src/post_training/
   run.py            run provenance: commit, tree state, library versions
   eval/             rubric, metrics, stop-token probe helper, eval harness
 tools/              one-off scripts: generation compare, memory probe,
-                    rubric on references, stop-token probe
+                    rubric on references, stop-token probe, eval system
+                    comparison
 tests/              unit tests for config, data, SFT, resume and eval
 docs/               decisions and results
 outputs/, data/     run outputs and data, gitignored
@@ -198,6 +218,10 @@ outputs/, data/     run outputs and data, gitignored
   the reason.
 - [docs/sft-results.md](docs/sft-results.md): Part 1 runs, bugs, memory and
   sample answers.
+- [docs/dpo-results.md](docs/dpo-results.md): Part 2 pairs, DPO training and
+  the reference model.
+- [docs/eval-results.md](docs/eval-results.md): Part 3, what each stage
+  changed on the held-out prompts.
 - [CLAUDE.md](CLAUDE.md): how agents work in this repo.
 
 ## Licence
