@@ -7,53 +7,77 @@ The reasons behind each setting are in [decisions.md](decisions.md).
 
 ## How these numbers were made
 
+The quotable run is the re-run for
+[#12](https://github.com/graylayer-labs/llm-post-training-lab/issues/12).
+
+- Commit `76739e6` on `main`, clean tree, `scratch` false
+  (`outputs/sft/summary.json`, `provenance`).
 - Config `configs/sft.yaml`: 2,000 training rows, 200 held-out rows, seed 0,
-  one epoch, 125 optimiser steps, effective batch 16.
+  one epoch, 125 optimiser steps, effective batch 16 (2 × 8).
+- Run directory `outputs/sft/`. The held-out rows are the 200
+  de-duplicated prompts in `outputs/sft/eval_rows.json`. De-duplication
+  dropped 7,587 rows (`data_stats.duplicates_dropped`).
 - Apple M4, 24 GB, MPS. torch 2.14.1, transformers 5.18.0, trl 1.14.1,
   peft 0.21.2.
 - One seed per run. Small differences between runs are not evidence.
-- The final run was made on the working tree just before commit `4c35d55`,
-  not from a clean commit.
-- The Part 1 split overlapped training: 4 of the 200 held-out prompts also
-  appeared among the 2,000 training rows, because the dataset contains
-  duplicate rows and the split did not remove them. `make_splits` now
-  de-duplicates by prompt before shuffling, so train and eval are disjoint.
-  The numbers below come from the overlapping split; the re-run in #12
-  replaces them. See [#15](https://github.com/graylayer-labs/llm-post-training-lab/issues/15).
-- Source files: `outputs/sft/` and `outputs/sft_v1_lora_only/`
-  (`summary.json`, `run.log`, `generations.json`). `outputs/` is gitignored,
-  so these files are local only.
+- The wall time was measured while another project's GPU jobs were running,
+  so it is contended and not comparable with Part 1's 854 s.
+- Checkpoints were saved every 25 steps and removed after the run completed
+  ([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21)).
+- `train_loss` is the mean of the logged step losses, not the Trainer's own
+  figure. See the checkpointing section of [decisions.md](decisions.md).
+- `outputs/` is gitignored, so these files are local only.
+
+The Part 1 runs (v1 and v2 below) are history. v2 came from a dirty working
+tree just before commit `4c35d55`, so its code cannot be traced. Its split
+also overlapped training: 4 of its 200 held-out prompts appeared among the
+2,000 training rows, because the dataset repeats prompts and the split did
+not remove them. `make_splits` now de-duplicates by prompt before shuffling
+([#15](https://github.com/graylayer-labs/llm-post-training-lab/issues/15)).
+The re-run draws different rows, so its losses are not comparable with
+Part 1's. The Part 1 run is kept at
+`outputs/sft_part1_overlapping_split/` (`summary.json`, `generations.json`,
+`run.log`); v1's logs are in `outputs/sft_v1_lora_only/`.
 
 ```bash
 uv run lab sft --config configs/sft.yaml
-uv run python tools/compare_generations.py outputs/sft -n 5
+uv run python tools/stop_token_probe.py outputs/sft
 ```
 
 ## Runs
 
-| | v1: LoRA only | v2: LoRA + chat-token rows (final) |
-|---|---|---|
-| Trainable parameters | 8,798,208 | 8,800,000 |
-| Loss | `chunked_nll` (TRL default) | `nll` |
-| Micro-batch × accumulation | 4 × 4 | 2 × 8 |
-| Eval loss before | 2.302 | 2.283 |
-| Eval loss after | 2.024 | 1.831 |
-| Train loss, epoch mean | 2.171 | 2.075 |
-| Wall time | 857 s | 854 s |
-| MPS memory at end of run | 3.71 GB | 5.16 GB |
-| Peak MPS memory, sampled per step | not measured | 8.53 GB |
-| SFT samples ending on a stop token | 0 of 5 | 4 of 5 |
+| | v1: LoRA only (Part 1) | v2: LoRA + chat-token rows (Part 1) | Re-run (#12, quotable) |
+|---|---|---|---|
+| Split | overlapping | overlapping | de-duplicated, disjoint |
+| Tree | dirty | dirty | clean, commit `76739e6` |
+| Trainable parameters | 8,798,208 | 8,800,000 | 8,800,000 |
+| Loss | `chunked_nll` (TRL default) | `nll` | `nll` |
+| Micro-batch × accumulation | 4 × 4 | 2 × 8 | 2 × 8 |
+| Eval loss before | 2.302 | 2.283 | 2.169 |
+| Eval loss after | 2.024 | 1.831 | 1.714 |
+| Train loss | 2.171 (epoch mean) | 2.075 (epoch mean) | 1.873 (mean of logged step losses) |
+| Wall time | 857 s | 854 s | 1,282.7 s (contended) |
+| MPS memory at end of run | 3.71 GB | 5.16 GB | 6.0 GB |
+| Peak MPS memory, sampled per step | not measured | 8.53 GB | 8.10 GB |
+| Stop token, 5 samples | 0 of 5 | 4 of 5 | not sampled; see the probe below |
 
 Notes on reading the table:
 
-- Both runs score the same 200 eval rows. The "before" losses differ because
-  the eval batch size follows the micro-batch, which most likely changes how
-  the per-batch losses are averaged. Compare each run's before and after, not
-  losses across runs.
+- Compare each run's before and after, not losses across runs. Each run
+  scores a different 200 rows, and v1 and v2 differ in how the eval batch
+  size follows the micro-batch, which most likely changes how the
+  per-batch losses are averaged.
+- On the 200 de-duplicated held-out answers, eval loss fell from 2.169 to
+  1.714. v2 fell from 2.283 to 1.831 on its overlapping rows. The drops are
+  0.455 and 0.452, so the clean re-run reproduces the size of the Part 1
+  effect. One seed each; no interval.
+- The re-run's wall time is 1,282.7 s against 854 s, but the re-run shared
+  the GPU with another project's jobs. Do not read it as the cost of
+  the de-duplicated split or of checkpointing.
 - v1 recorded memory once, at the end of the run. Its 3.71 GB is end-of-run
-  memory, not a peak. The two memory rows therefore do not show that v2 needs
-  more than twice the memory.
-- The 1,792 extra parameters in v2 are the two embedding rows of width 896.
+  memory, not a peak.
+- The 1,792 extra parameters in v2 and the re-run are the two embedding rows
+  of width 896.
 
 ## The stop-token bug
 
@@ -66,10 +90,26 @@ projections only. Qwen2.5-0.5B ties its input embedding to its output layer,
 and LoRA does not touch either, so the logit row for `<|im_end|>` could not
 learn much.
 
-**Measured but not saved.** At the end of a reference answer, the base model
-ranked `<|im_end|>` about 115,000th of 152,000 tokens. Its probability at
-that point was 0.00 for the base model and 0.70 after the v2 fix. Neither number
-was written to a file. Treat them as indicative until a script records them.
+**Measured and saved.** `tools/stop_token_probe.py` feeds each reference
+answer to the model, up to but not including its final `<|im_end|>`, and
+records the probability and rank of `<|im_end|>` as the next token, out of
+152,000 tokens. Run at commit `723c41a`, clean, on the re-run adapter and
+the base model, over all 200 held-out rows (200 of 200 probed). Saved in
+`outputs/sft/stop_token_probe.json`.
+
+| | Base | SFT (re-run) |
+|---|---|---|
+| Median probability | 2.065e-09 | 0.7417 |
+| Mean probability | 9.548e-07 | 0.6335 |
+| Median rank | 123,031 | 1 |
+| Share of rows where `<|im_end|>` ranks first | 0.00 | 0.795 |
+
+The Part 1 text quoted two figures from an unsaved check: a base rank of
+"about 115,000th" and a probability of "0.70" after the v2 fix. They were
+close. The saved base median rank is 123,031. The 0.70 was probably a mean
+rather than a median (the saved SFT mean is 0.6335 and the median 0.7417),
+but it was never saved and came from the Part 1 adapter on other rows, so
+which statistic it was is not known. Use the saved figures only.
 
 **Fix.** PEFT's `trainable_token_indices` trains the `<|im_start|>` and
 `<|im_end|>` embedding rows in full. With tied weights that also updates
@@ -77,7 +117,13 @@ their output rows. This needed a second change. TRL's default
 `chunked_nll` loss reads `lm_head.weight` directly and skips PEFT's wrapper,
 so the rows got no gradient. The run now uses `loss_type="nll"`.
 
-**Result.** 4 of 5 SFT answers end on `<|im_end|>`, against 0 of 5 for v1.
+**Result.** In Part 1, 4 of 5 SFT answers ended on `<|im_end|>`, against 0 of
+5 for v1. On the re-run adapter the probe puts `<|im_end|>` first in 159 of
+200 held-out reference positions (share 0.795), against none for the base
+model. That is a next-token measure on reference text, not a count of
+generated answers that stop. The eval harness
+([#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3))
+will measure stopping on generated answers.
 
 ## Out of memory, then a cache leak
 
@@ -100,13 +146,28 @@ instead of reusing them, and driver memory grew until the process died.
 
 **Fix.** `ReleaseCacheCallback` calls `torch.mps.empty_cache()` after every
 optimiser step. `PeakMemoryCallback` samples driver memory just before the
-release, because MPS has no `max_memory_allocated`. The final run completed
-with a sampled peak of 8.53 GB.
+release, because MPS has no `max_memory_allocated`. The final Part 1 run
+completed with a sampled peak of 8.53 GB.
+
+## Failures on the way
+
+The first attempt at the re-run was killed at step 18 of 125 by another
+agent's pattern kill (`pkill -f`), which matched this run's process. The log
+is at `outputs/failed/sft-killed-step18/run.log`. Nothing had been saved, so
+the run started again from step 0. That led to checkpointing and
+`lab sft --resume`
+([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21)),
+and to a machine-wide guard against pattern kills. The re-run above
+completed with checkpoints on.
 
 ## Base vs SFT answers
 
-Greedy decoding, 256 new tokens at most, first 5 held-out prompts. Answers
-are shortened here. Full text is in `outputs/sft/generations.json`.
+These answers are from the Part 1 run (v2), on its overlapping split, not
+from the re-run. Greedy decoding, 256 new tokens at most, first 5 held-out
+prompts of that split. Answers are shortened here. Full text is in
+`outputs/sft_part1_overlapping_split/generations.json`. The eval harness
+([#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3))
+will give quotable answers.
 
 | Prompt | Base | SFT (v2) |
 |---|---|---|
@@ -157,13 +218,14 @@ Raw output is in `outputs/memory_probe/results.jsonl`.
 ## Open items
 
 - **Repetition loops.** One SFT answer of five still loops until the token
-  limit. The planned Part 2 rubric will mark such answers as rejected, so
-  DPO may reduce them. A repetition penalty at decode time is another option, not yet tried.
+  limit. The rubric (#11) marks such answers as failing `repetition`, so DPO
+  may reduce them. A repetition penalty at decode time is another option, not yet tried.
 - **One unexplained kill.** One run ended with exit code 137 (killed by the
   system) and no Python error. It has not happened again and no log was
   kept, so the cause is unknown.
 - **Approximate peak memory on MPS.** The peak is sampled once per optimiser
   step and at evaluation. A spike inside a step, between samples, is missed.
-  The true peak may be higher than 8.53 GB.
-- **Unsaved measurements.** The `<|im_end|>` rank and probability figures
-  above need a script that writes them to a file.
+  The true peak may be higher than the 8.10 GB of the re-run.
+- **No answers from the re-run yet.** The sample answers above are from
+  Part 1. The re-run adapter has a saved loss and a saved probe, but no
+  generated answers until the eval harness runs it.
