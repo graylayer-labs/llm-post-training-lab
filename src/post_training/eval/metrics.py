@@ -52,7 +52,9 @@ def perplexity(parts: Sequence[tuple[float, int]]) -> float | None:
     return math.exp(sum(nll for nll, _ in parts) / total)
 
 
-def _chat_ids(tok: Any, messages: Any, add_generation_prompt: bool) -> list[int]:
+def chat_ids(tok: Any, messages: Any, add_generation_prompt: bool) -> list[int]:
+    """Token ids of ``messages`` under the tokenizer's chat template, as TRL
+    tokenizes them for SFT."""
     return list(
         tok.apply_chat_template(
             messages,
@@ -72,8 +74,8 @@ def reference_nll(
     Returns ``(nll_sum, n_answer_tokens, truncated)``. The sequence is cut at
     ``max_length`` tokens, as TRL truncated it in training.
     """
-    prompt = _chat_ids(tok, prompt_messages(row), add_generation_prompt=True)
-    full = _chat_ids(tok, to_messages(row), add_generation_prompt=False)
+    prompt = chat_ids(tok, prompt_messages(row), add_generation_prompt=True)
+    full = chat_ids(tok, to_messages(row), add_generation_prompt=False)
     if full[: len(prompt)] != prompt:
         raise ValueError("chat template: prompt is not a prefix of prompt+answer")
     truncated = len(full) > max_length

@@ -30,9 +30,14 @@ class HarnessTok:
     padding_side = "right"
     pad_token_id = PAD
     eos_token_id = EOT
+    chat_template = "stub-template-v1"
+    all_special_tokens = ["<|im_end|>", "<|endoftext|>"]
 
     def convert_tokens_to_ids(self, t: str) -> int:
         return {"<|im_end|>": IM_END, "<|endoftext|>": EOT}[t]
+
+    def get_vocab(self) -> dict[str, int]:
+        return {"<pad>": PAD, "<|im_end|>": IM_END, "<|endoftext|>": EOT}
 
     def _ids(self, messages: Any, add_generation_prompt: bool) -> list[int]:
         ids: list[int] = []
@@ -92,13 +97,29 @@ ROWS = [
 ]
 
 
+class OtherTemplateTok(HarnessTok):
+    """Same prompt ids as HarnessTok, but a different chat-template string."""
+
+    chat_template = "stub-template-v2"
+
+
+class ShiftedTok(HarnessTok):
+    """A template that renders different prompt ids."""
+
+    chat_template = "stub-template-shifted"
+
+    def _ids(self, messages: Any, add_generation_prompt: bool) -> list[int]:
+        return [3, *super()._ids(messages, add_generation_prompt)]
+
+
 class Loader:
-    def __init__(self) -> None:
+    def __init__(self, adapter_tok: type[HarnessTok] = HarnessTok) -> None:
         self.calls: list[str | None] = []
+        self.adapter_tok = adapter_tok
 
     def __call__(self, model_name: str, adapter: str | None = None) -> Any:
         self.calls.append(adapter)
-        return _model(), HarnessTok()
+        return _model(), (self.adapter_tok() if adapter else HarnessTok())
 
 
 def _cfg(tmp_path: Path, **kw: Any) -> EvalConfig:
@@ -186,6 +207,42 @@ def test_changed_adapter_weights_invalidate_the_cache(tmp_path: Path) -> None:
     res = run_eval(cfg, load=Loader())
     assert _system(res, "sft")["rows_from_cache"] == 0
     assert _system(res, "base")["rows_from_cache"] == 3
+
+
+def test_key_records_tokenizer_template_revision_and_dtype(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    res = run_eval(cfg, load=Loader())
+    base = _system(res, "base")
+    path = Path(cfg.output_dir) / "generations" / "base.jsonl"
+    key = json.loads(path.read_text().splitlines()[0])["cache_key"]
+    expected_template = hashlib.sha256(b"stub-template-v1").hexdigest()
+    for record in (key, base):
+        assert record["chat_template_sha256"] == expected_template
+        assert len(record["tokenizer_sha256"]) == 64
+        assert record["dtype"] == "torch.float32"
+        assert "model_revision" in record
+    assert "first_prompt_ids_sha256" in base
+
+
+def test_changed_chat_template_invalidates_the_cache(tmp_path: Path) -> None:
+    run_eval(_cfg(tmp_path), load=Loader())
+    res = run_eval(_cfg(tmp_path), load=Loader(adapter_tok=OtherTemplateTok))
+    assert _system(res, "sft")["rows_from_cache"] == 0
+    assert _system(res, "base")["rows_from_cache"] == 3
+
+
+def test_prompt_ids_that_differ_across_systems_raise(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="prompt ids"):
+        run_eval(_cfg(tmp_path), load=Loader(adapter_tok=ShiftedTok))
+
+
+def test_results_md_carries_the_metric_notes(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    run_eval(cfg, load=Loader())
+    md = (Path(cfg.output_dir) / "results.md").read_text()
+    assert "lowercases" in md and "1 200 50" in md
+    assert "not a paired test" in md
+    assert "new_tokens < max_new_tokens" in md
 
 
 def test_resume_after_a_partial_file(tmp_path: Path) -> None:

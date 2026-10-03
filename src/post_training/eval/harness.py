@@ -31,6 +31,7 @@ from post_training.data.finance import Row, prompt_key, prompt_messages
 from post_training.eval.metrics import (
     ROUGE_TYPE,
     ROUGE_USE_STEMMER,
+    chat_ids,
     perplexity,
     reference_nll,
     rouge_l,
@@ -49,6 +50,15 @@ PERPLEXITY_NOTE = (
     "truncated at perplexity.max_length like SFT; exp of the token-weighted "
     "mean NLL over all answer tokens."
 )
+NOTES = (
+    "ROUGE-L uses rouge-score's tokenizer, which lowercases and replaces "
+    "punctuation with spaces (`$1,200.50` becomes `1 200 50`), with the "
+    "Porter stemmer on.",
+    "Bootstrap intervals use one shared seed across systems and are not a "
+    "paired test: overlapping intervals do not mean there is no difference.",
+    "An answer whose stop token lands exactly at max_new_tokens counts as "
+    "stopped but fails clean_stop, whose rule is `new_tokens < max_new_tokens`.",
+)
 
 
 def prompt_set_hash(rows: Sequence[Row]) -> str:
@@ -66,6 +76,22 @@ def adapter_hash(adapter: Path) -> str:
             for chunk in iter(lambda: fh.read(1 << 20), b""):
                 h.update(chunk)
     return h.hexdigest()
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def tokenizer_hash(tok: Any) -> str:
+    """sha256 over the tokenizer's vocabulary and special tokens."""
+    return _sha256(
+        json.dumps(
+            {
+                "vocab": sorted(tok.get_vocab().items()),
+                "special": sorted(tok.all_special_tokens),
+            }
+        )
+    )
 
 
 def write_atomic(path: Path, text: str) -> None:
@@ -202,7 +228,10 @@ def _score_system(
     p_hash: str,
     gen_dir: Path,
     load: Loader,
+    first_ids: dict[str, str],
 ) -> dict[str, Any]:
+    """Score one system. ``first_ids`` holds the first scored system's hash
+    of the first row's prompt ids; every later system must match it."""
     out: dict[str, Any] = {"name": system.name, "adapter": system.adapter}
     if reason := _skip_reason(system):
         return {**out, "status": "skipped", "reason": reason}
@@ -211,11 +240,25 @@ def _score_system(
     model, tok = load(cfg.model_name, system.adapter)
     model.eval()
     try:
+        ids = chat_ids(tok, prompt_messages(rows[0]), add_generation_prompt=True)
+        ids_hash = _sha256(json.dumps(ids))
+        if first_ids.setdefault("sha256", ids_hash) != ids_hash:
+            raise ValueError(
+                f"{system.name}: prompt ids for the first row differ from the "
+                "first system's; the tokenizer or chat template changed"
+            )
+        identity = {
+            "chat_template_sha256": _sha256(str(tok.chat_template)),
+            "tokenizer_sha256": tokenizer_hash(tok),
+            "model_revision": getattr(model.config, "_commit_hash", None),
+            "dtype": str(next(model.parameters()).dtype),
+        }
         key = {
             "system": system.name,
             "adapter": system.adapter,
             "adapter_sha256": a_hash,
             "model_name": cfg.model_name,
+            **identity,
             "prompt_set_sha256": p_hash,
             "generation": {
                 "do_sample": False,
@@ -248,6 +291,8 @@ def _score_system(
         **out,
         "status": "scored",
         "adapter_sha256": a_hash,
+        **identity,
+        "first_prompt_ids_sha256": ids_hash,
         "generation_settings": key["generation"],
         "generations_file": str(gen_dir / f"{system.name}.jsonl"),
         "rows_from_cache": reused,
@@ -319,6 +364,7 @@ def render_markdown(results: dict[str, Any]) -> str:
                 _pct(s["stopped_share"]),
             ]
         lines.append(f"| {s['name']} | " + " | ".join(cells) + " |")
+    lines += ["", "## Notes", "", *(f"- {n}" for n in NOTES)]
     return "\n".join(lines) + "\n"
 
 
@@ -340,7 +386,11 @@ def run_eval(cfg: EvalConfig, *, load: Loader = _default_loader) -> dict[str, An
     gen_dir = out / "generations"
     gen_dir.mkdir(parents=True, exist_ok=True)
 
-    systems = [_score_system(cfg, s, rows, p_hash, gen_dir, load) for s in cfg.systems]
+    first_ids: dict[str, str] = {}
+    systems = [
+        _score_system(cfg, s, rows, p_hash, gen_dir, load, first_ids)
+        for s in cfg.systems
+    ]
     results = {
         "config": to_dict(cfg),
         "provenance": provenance,
