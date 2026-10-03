@@ -20,6 +20,7 @@ from post_training.data.finance import Row, load_splits, to_messages
 from post_training.train.common import (
     PeakMemoryCallback,
     ReleaseCacheCallback,
+    bf16_supported,
     device_report,
     load_model_and_tokenizer,
 )
@@ -75,7 +76,7 @@ def build_sft_args(cfg: SftConfig, n_train: int) -> Any:
         logging_steps=cfg.train.logging_steps,
         eval_strategy="epoch",
         save_strategy="no",
-        bf16=True,
+        bf16=bf16_supported(),
         completion_only_loss=True,
         # TRL's default "chunked_nll" multiplies hidden states by lm_head.weight
         # directly, bypassing PEFT's trainable-token wrapper on the tied

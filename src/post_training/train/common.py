@@ -17,6 +17,16 @@ def pick_device() -> str:
     return "cpu"
 
 
+def bf16_supported() -> bool:
+    """Whether mixed-precision bf16 training works here: CUDA with bf16, or MPS.
+
+    CPU-only machines such as CI runners fall back to fp32.
+    """
+    if torch.cuda.is_available():
+        return torch.cuda.is_bf16_supported()
+    return torch.backends.mps.is_available()
+
+
 def load_model_and_tokenizer(
     model_name: str, adapter: str | None = None
 ) -> tuple[Any, Any]:
