@@ -89,26 +89,6 @@ yet.
 - **Why:** bitsandbytes 4-bit quantisation is CUDA-only. A 0.5B model in bf16
   fits easily in 24 GB.
 
-### Describe each run in a config file
-
-*2026-10-03*
-
-- **Chose:** config-driven runs: one YAML file per run, typed dataclasses and
-  a `lab` CLI.
-- **Over:** notebooks.
-- **Why:** A run is then fully described by a commit and a file, and two runs
-  differ by a YAML diff. `summary.json` stores the resolved config next to
-  the numbers.
-
-### Use uv, ruff, ty and pytest
-
-*2026-10-03*
-
-- **Chose:** uv, ruff, ty and pytest, with the same checks in CI.
-- **Over:** pip and mypy.
-- **Why:** One lockfile and fast installs. One quality gate runs the same
-  locally and in CI.
-
 ## Evaluation and preferences (planned)
 
 ### Score answers with a rubric and a pairwise judge
@@ -134,3 +114,25 @@ yet.
 - **Why:** Real users rarely have preference data, so building pairs from SFT
   data is the realistic case. It also ties the signal to the same rubric
   Part 3 scores. See #2.
+
+## Project setup
+
+### Describe each run in a config file
+
+*2026-10-03*
+
+- **Chose:** config-driven runs: one YAML file per run, typed dataclasses and
+  a `lab` CLI.
+- **Over:** notebooks.
+- **Why:** A run is then fully described by a commit and a file, and two runs
+  differ by a YAML diff. `summary.json` stores the resolved config next to
+  the numbers.
+
+### Use uv, ruff, ty and pytest
+
+*2026-10-03*
+
+- **Chose:** uv, ruff, ty and pytest, with the same checks in CI.
+- **Over:** pip and mypy.
+- **Why:** One lockfile and fast installs. One quality gate runs the same
+  locally and in CI.

@@ -16,7 +16,8 @@ anything below that conflicts with it.
   for the work, create one from `.github/ISSUE_TEMPLATE/task.md`.
 - **Record on the issue.** Decisions, results and dead ends go in an issue
   comment, so the next agent can continue from the issue alone. A new
-  decision also gets one line in `docs/decisions.md`.
+  decision also gets its own section in `docs/decisions.md`, under the
+  matching group.
 - **Commits** use Conventional Commits. Stage files by name.
 
 ## Quality gate
