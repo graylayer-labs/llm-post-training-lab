@@ -6,6 +6,30 @@ each links to the issue that holds the detail.
 
 ## Epic: Hands-on LLM post-training and evaluation (in progress)
 
+### 2026-10-04
+
+**Added**
+- `tools/blind_grading.py` builds a blind grading sheet (answers shuffled
+  per prompt under hidden labels, key kept apart) and unblinds the grades
+  into per-system rates, paired differences and inter-grader agreement
+  ([#37](https://github.com/graylayer-labs/llm-post-training-lab/issues/37)).
+  A `subset` command repeats the paired differences on prompts where the
+  rubric passes both systems, to separate "correct" from "does not loop"
+  ([#35](https://github.com/graylayer-labs/llm-post-training-lab/issues/35)).
+
+**Result**
+- Blind correctness check of 50 held-out prompts, graded by two Claude
+  model graders (Opus, Sonnet), not a person, unblinded at commit
+  `66b837b`. Correct: base 10.0% / 12.0%, SFT 30.0% / 30.0%, DPO 44.0% /
+  48.0%. Agreement 84.0%, kappa 0.756. DPO over SFT, paired: +14.0 points
+  [+0.0, +28.0] and +18.0 [+6.0, +28.0]; on the 35 prompts where both pass
+  the rubric, +8.6 [−8.6, +22.9] and +11.4 [+0.0, +25.7] (computed at
+  branch commit `b3b5567`). Only 34.3% / 40.0% of SFT's rubric passes are
+  graded correct. A first Sonnet grading, which judged mostly from length
+  and the first ~300 characters, was discarded and rerun.
+  ([results](docs/eval-results.md#blind-correctness-check),
+  [#35](https://github.com/graylayer-labs/llm-post-training-lab/issues/35))
+
 ### 2026-10-03
 
 **Added**
