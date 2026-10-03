@@ -8,11 +8,7 @@ token or ran into ``--max-new-tokens``.
 
     uv run python tools/compare_generations.py outputs/sft -n 5
 
-Stop tokens are ``<|im_end|>`` and ``<|endoftext|>``. The base checkpoint's
-generation config lists only ``<|endoftext|>``, but the chat template closes
-the assistant turn with ``<|im_end|>``, and that is the token SFT teaches the
-model to emit. Without it in the stop set the SFT model would end its answer
-and then keep going into a new turn.
+Generation (stop tokens, left padding) is in ``post_training.generate``.
 """
 
 from __future__ import annotations
@@ -22,32 +18,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-import torch
-
 from post_training.data.finance import prompt_messages
+from post_training.generate import generate
 from post_training.train.common import load_model_and_tokenizer
-
-
-@torch.no_grad()
-def answer(model: Any, tok: Any, row: dict, max_new_tokens: int) -> dict:
-    text = tok.apply_chat_template(
-        prompt_messages(row), tokenize=False, add_generation_prompt=True
-    )
-    enc = tok(text, return_tensors="pt").to(model.device)
-    stop = [tok.convert_tokens_to_ids("<|im_end|>"), tok.eos_token_id]
-    out = model.generate(
-        **enc,
-        max_new_tokens=max_new_tokens,
-        do_sample=False,
-        eos_token_id=stop,
-        pad_token_id=tok.pad_token_id,
-    )
-    new = out[0, enc["input_ids"].shape[1] :]
-    return {
-        "text": tok.decode(new, skip_special_tokens=True).strip(),
-        "new_tokens": len(new),
-        "stopped": int(new[-1]) in stop,
-    }
 
 
 def main() -> None:
@@ -56,6 +29,7 @@ def main() -> None:
     p.add_argument("-n", type=int, default=5)
     p.add_argument("--model", default="Qwen/Qwen2.5-0.5B")
     p.add_argument("--max-new-tokens", type=int, default=256)
+    p.add_argument("--batch-size", type=int, default=4)
     a = p.parse_args()
 
     rows = json.loads((a.run_dir / "eval_rows.json").read_text())[: a.n]
@@ -63,8 +37,15 @@ def main() -> None:
     for name, adapter in (("base", None), ("sft", str(a.run_dir / "adapter"))):
         model, tok = load_model_and_tokenizer(a.model, adapter=adapter)
         model.eval()
-        for res, row in zip(results, rows, strict=True):
-            res[name] = answer(model, tok, row, a.max_new_tokens)
+        outs = generate(
+            model,
+            tok,
+            [prompt_messages(r) for r in rows],
+            a.max_new_tokens,
+            a.batch_size,
+        )
+        for res, out in zip(results, outs, strict=True):
+            res[name] = out
         del model
 
     for i, res in enumerate(results):
