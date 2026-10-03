@@ -9,7 +9,7 @@ how many pass, plus a few failing examples to read.
     uv run python tools/rubric_on_references.py --show 5
 
 References are scored as if generation stopped cleanly (``stopped=True``, one
-new token), so ``clean_stop`` always passes here. ``hallucinated_numbers``
+new token), so ``clean_stop`` always passes here. ``ungrounded_numbers``
 also passes by construction, because the reference is one of its sources.
 """
 

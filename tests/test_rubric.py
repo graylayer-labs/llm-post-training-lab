@@ -10,8 +10,8 @@ from post_training.eval.rubric import (
     check_clean_stop,
     check_domain_terms,
     check_format,
-    check_hallucinated_numbers,
     check_repetition,
+    check_ungrounded_numbers,
     is_finance_row,
     number_values,
     score,
@@ -270,52 +270,61 @@ def test_number_values_skips_names_and_codes(text: str) -> None:
     assert number_values(text) == []
 
 
-# --- hallucinated numbers -------------------------------------------------
+# --- ungrounded numbers ---------------------------------------------------
 
 
 def test_numbers_pass_when_found_in_reference() -> None:
-    r = check_hallucinated_numbers(FINANCE_ROW, "At 3% the fund's 7% return wins.")
+    r = check_ungrounded_numbers(FINANCE_ROW, "At 3% the fund's 7% return wins.")
     assert r.applies and r.passed
 
 
 def test_numbers_fail_when_invented() -> None:
-    r = check_hallucinated_numbers(FINANCE_ROW, "Funds return 12% a year.")
+    r = check_ungrounded_numbers(FINANCE_ROW, "Funds return 12% a year.")
     assert not r.passed
     assert "12%" in r.reason
 
 
 def test_numbers_match_across_percent_and_decimal() -> None:
-    assert check_hallucinated_numbers(FINANCE_ROW, "A rate of 0.03 is low.").passed
+    assert check_ungrounded_numbers(FINANCE_ROW, "A rate of 0.03 is low.").passed
     row = dict(FINANCE_ROW, output="A rate of 0.04 beats inflation.")
-    assert check_hallucinated_numbers(row, "4% beats inflation.").passed
+    assert check_ungrounded_numbers(row, "4% beats inflation.").passed
 
 
 def test_numbers_match_across_currency_and_commas() -> None:
     row = dict(FINANCE_ROW, input="I owe 25000 on the loan.")
-    assert check_hallucinated_numbers(row, "Pay the $25,000 loan off.").passed
+    assert check_ungrounded_numbers(row, "Pay the $25,000 loan off.").passed
 
 
 def test_numbers_exempt_years_and_small_integers() -> None:
     answer = "Since 2008, take 3 steps: budget, save, invest. In 1999 it was 10."
-    assert check_hallucinated_numbers(FINANCE_ROW, answer).passed
+    assert check_ungrounded_numbers(FINANCE_ROW, answer).passed
 
 
 def test_small_integer_with_percent_is_not_exempt() -> None:
-    r = check_hallucinated_numbers(FINANCE_ROW, "Expect 5% from bonds.")
+    r = check_ungrounded_numbers(FINANCE_ROW, "Expect 5% from bonds.")
     assert not r.passed
 
 
 def test_small_integer_with_currency_is_not_exempt() -> None:
-    r = check_hallucinated_numbers(FINANCE_ROW, "It costs $8 a month.")
+    r = check_ungrounded_numbers(FINANCE_ROW, "It costs $8 a month.")
     assert not r.passed
 
 
+def test_numbers_fail_correct_but_unstated_arithmetic() -> None:
+    # The rule checks grounding, not truth: $50 at 5% is $52.50 after a year, but
+    # the figure appears in neither the prompt nor the reference.
+    row = dict(FINANCE_ROW, input="I invest $50 at 5% a year.", output="It grows.")
+    r = check_ungrounded_numbers(row, "That is $52.50 after a year.")
+    assert not r.passed
+    assert "$52.50" in r.reason
+
+
 def test_numbers_pass_answer_without_numbers() -> None:
-    assert check_hallucinated_numbers(FINANCE_ROW, "Pay the loan off.").passed
+    assert check_ungrounded_numbers(FINANCE_ROW, "Pay the loan off.").passed
 
 
 def test_numbers_do_not_apply_to_general_row() -> None:
-    r = check_hallucinated_numbers(GENERAL_ROW, "Sleep 8 hours, 42 nights.")
+    r = check_ungrounded_numbers(GENERAL_ROW, "Sleep 8 hours, 42 nights.")
     assert not r.applies
 
 
@@ -339,7 +348,7 @@ def test_score_passes_good_finance_answer() -> None:
         "clean_stop",
         "repetition",
         "domain_terms",
-        "hallucinated_numbers",
+        "ungrounded_numbers",
     ]
 
 
@@ -366,7 +375,7 @@ def test_score_ignores_rules_that_do_not_apply() -> None:
     )
     assert res.overall
     assert not res.rule("domain_terms").applies
-    assert not res.rule("hallucinated_numbers").applies
+    assert not res.rule("ungrounded_numbers").applies
 
 
 def test_score_to_dict_is_json_ready() -> None:
@@ -378,3 +387,11 @@ def test_score_to_dict_is_json_ready() -> None:
     fmt = d["rules"]["format"]
     assert set(fmt) == {"applies", "passed", "reason"}
     assert fmt["applies"] is True and fmt["passed"] is False
+
+
+def test_every_rule_is_documented_in_the_module_docstring() -> None:
+    import post_training.eval.rubric as rubric
+
+    res = score(GENERAL_ROW, "x", stopped=True, new_tokens=1, max_new_tokens=2)
+    for r in res.rules:
+        assert f"``{r.name}``" in (rubric.__doc__ or ""), r.name

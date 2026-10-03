@@ -19,8 +19,10 @@ Rules:
 - ``domain_terms`` (finance rows only): the answer uses at least one term
   from ``ANSWER_FINANCE_TERMS`` (broader than the list that classes rows) or
   a currency amount.
-- ``hallucinated_numbers`` (finance rows only): every figure in the answer
+- ``ungrounded_numbers`` (finance rows only): every figure in the answer
   also appears in the prompt or the reference answer, after normalisation.
+  This checks grounding, not truth: correct arithmetic on the prompt's
+  figures fails it, and a false figure copied from the reference passes.
 
 A row is a finance row when its prompt (instruction and input, not the
 reference answer) contains a finance term. The reference is left out because
@@ -425,9 +427,16 @@ def check_domain_terms(row: Row, answer: str) -> RuleResult:
     return _fail("domain_terms", "no finance term in a finance answer")
 
 
-def check_hallucinated_numbers(row: Row, answer: str) -> RuleResult:
+def check_ungrounded_numbers(row: Row, answer: str) -> RuleResult:
+    """Fail when a figure in the answer is in neither the prompt nor the reference.
+
+    This checks grounding, not truth. It cannot tell whether a figure is false:
+    correct arithmetic on the prompt's figures ("$50 at 5% is $52.50 after a
+    year") fails, and a wrong figure that happens to appear in the reference
+    passes.
+    """
     if not is_finance_row(row):
-        return _skip("hallucinated_numbers", "not a finance row")
+        return _skip("ungrounded_numbers", "not a finance row")
     source = set().union(
         *(n.values for n in _numbers(f"{_prompt_text(row)}\n{row['output']}"))
     )
@@ -436,10 +445,10 @@ def check_hallucinated_numbers(row: Row, answer: str) -> RuleResult:
     ]
     if invented:
         return _fail(
-            "hallucinated_numbers",
+            "ungrounded_numbers",
             "not in prompt or reference: " + ", ".join(invented),
         )
-    return _ok("hallucinated_numbers")
+    return _ok("ungrounded_numbers")
 
 
 def score(
@@ -460,6 +469,6 @@ def score(
             ),
             check_repetition(answer),
             check_domain_terms(row, answer),
-            check_hallucinated_numbers(row, answer),
+            check_ungrounded_numbers(row, answer),
         ),
     )
