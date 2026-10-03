@@ -91,6 +91,28 @@ yet.
 
 ## Evaluation and preferences (planned)
 
+### Class finance rows by the prompt, and match figures as value sets
+
+*2026-10-03*
+
+- **Chose:** a row counts as finance when its instruction or input uses a
+  term from a narrow list. Only finance rows get the domain-terms and
+  invented-number rules, and the answer is checked against a broader list
+  ("pay", "shares", "price"). Each figure maps to a set of equal values:
+  `5%` to {5, 0.05}, `$1.5 million` to {1.5, 1,500,000}. A figure passes if
+  any value appears in the prompt or reference. Bare integers 0 to 10 and
+  years 1900 to 2099 are exempt.
+- **Over:** classing rows by the reference answer too, one term list for
+  both sides, and exact string matching of numbers.
+- **Why:** The rubric picks DPO's rejected answers, so a rule that fails
+  good answers teaches the wrong thing. General Alpaca answers mention
+  finance in passing ("financial analyst" in a list of jobs), and recipes or
+  code carry numbers no reference repeats. On the 2,200 training and eval
+  references, the rubric's v1 rules pass 98.6% overall, the domain-terms
+  rule 97.2% and repetition 99.2% (measured, not saved; rerun with
+  `tools/rubric_on_references.py`). Exact matching would fail `0.05` against
+  `5%`. See #11.
+
 ### Score answers with a rubric and a pairwise judge
 
 *2026-10-03*, **Planned**
