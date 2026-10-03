@@ -111,9 +111,10 @@ yet.
   finance in passing ("financial analyst" in a list of jobs), and recipes or
   code carry numbers no reference repeats. Exact matching would fail `0.05`
   against `5%`. See #11.
-- **Result:** `outputs/rubric_references/v1/summary.json` (commit
-  `34f850f`, from `tools/rubric_on_references.py`) covers the 2,200 training
-  and eval references. 514 (23.4%) are finance rows. The references pass
+- **Result:** a scratch run of `tools/rubric_on_references.py` on the
+  pre-merge branch (commit `34f850f`, before the split was de-duplicated in
+  #15) covered the 2,200 training and eval references. The quotable re-run
+  from `main` belongs to #12. 514 (23.4%) are finance rows. The references pass
   98.4% overall, `domain_terms` 96.5% and `repetition` 99.2%.
 - **Limit:** `ungrounded_numbers` checks grounding, not truth. A correct
   figure that the reference does not state fails it, for example "$52.50"

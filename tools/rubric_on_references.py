@@ -21,10 +21,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 from post_training.data.finance import load_splits
 from post_training.eval.rubric import (
@@ -33,19 +31,7 @@ from post_training.eval.rubric import (
     is_finance_row,
     score,
 )
-
-
-def _git(*args: str) -> str:
-    out = subprocess.run(["git", *args], capture_output=True, text=True, check=True)
-    return out.stdout.strip()
-
-
-def _provenance() -> dict[str, Any]:
-    # TODO(#10): use post_training.run.run_provenance() once #10 merges.
-    return {
-        "git_commit": _git("rev-parse", "HEAD"),
-        "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
-    }
+from post_training.run import run_provenance
 
 
 def _rate(k: int, n: int) -> float | None:
@@ -120,7 +106,7 @@ def main() -> None:
             "failed": ungrounded_without_ref,
             "fail_rate": _rate(ungrounded_without_ref, len(finance)),
         },
-        "provenance": _provenance(),
+        "provenance": run_provenance(),
     }
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
