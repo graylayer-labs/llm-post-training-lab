@@ -58,3 +58,35 @@ def test_records_versions_and_machine() -> None:
     assert p["python"]
     assert p["hostname"]
     assert p["platform"]
+
+
+def test_editable_install_inside_src_has_no_install_problem(tmp_path: Path) -> None:
+    from post_training.run import install_problem
+
+    f = tmp_path / "src" / "post_training" / "run.py"
+    url = '{"url": "file:///x", "dir_info": {"editable": true}}'
+    assert install_problem(f, tmp_path, url) is None
+
+
+def test_non_editable_install_is_a_problem(tmp_path: Path) -> None:
+    from post_training.run import install_problem
+
+    f = tmp_path / "src" / "post_training" / "run.py"
+    url = '{"url": "file:///x", "dir_info": {}}'
+    assert "editable" in (install_problem(f, tmp_path, url) or "")
+    assert "editable" in (install_problem(f, tmp_path, None) or "")
+
+
+def test_module_outside_src_is_a_problem(tmp_path: Path) -> None:
+    from post_training.run import install_problem
+
+    f = tmp_path / ".venv" / "site-packages" / "post_training" / "run.py"
+    url = '{"dir_info": {"editable": true}}'
+    assert "src" in (install_problem(f, tmp_path, url) or "")
+
+
+def test_provenance_reports_a_scratch_reason(tmp_path: Path) -> None:
+    repo = _make_repo(tmp_path / "r")
+    assert run_provenance(repo)["scratch_reason"] is None
+    (repo / "new.txt").write_text("x")
+    assert run_provenance(repo)["scratch_reason"]
