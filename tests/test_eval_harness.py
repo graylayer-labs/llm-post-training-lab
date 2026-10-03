@@ -331,3 +331,30 @@ def test_cli_eval_runs_the_harness(
     cli.main()
     assert seen[0].eval_rows == "r.json"
     assert "TABLE" in capsys.readouterr().out
+
+
+def test_model_revision_is_resolved_from_the_hub_cache_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import huggingface_hub
+
+    from post_training.eval import harness
+
+    fake = "/c/hub/models--Qwen--Qwen2.5-0.5B/snapshots/060db64/config.json"
+    monkeypatch.setattr(
+        huggingface_hub, "try_to_load_from_cache", lambda repo, name: fake
+    )
+    assert harness.model_revision("Qwen/Qwen2.5-0.5B") == "060db64"
+
+
+def test_model_revision_is_none_when_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import huggingface_hub
+
+    from post_training.eval import harness
+
+    monkeypatch.setattr(
+        huggingface_hub, "try_to_load_from_cache", lambda repo, name: None
+    )
+    assert harness.model_revision("Qwen/Qwen2.5-0.5B") is None

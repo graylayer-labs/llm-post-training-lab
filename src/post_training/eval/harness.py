@@ -94,6 +94,20 @@ def tokenizer_hash(tok: Any) -> str:
     )
 
 
+def model_revision(model_name: str) -> str | None:
+    """Commit hash of the cached Hub snapshot the base weights load from.
+
+    ``model.config._commit_hash`` is empty when loading from the local cache,
+    so read it from the snapshot path instead. None if the model is not cached.
+    """
+    import huggingface_hub
+
+    path = huggingface_hub.try_to_load_from_cache(model_name, "config.json")
+    if not isinstance(path, str):
+        return None
+    return Path(path).parent.name
+
+
 def write_atomic(path: Path, text: str) -> None:
     """Write ``text`` to a temp file beside ``path``, then ``os.replace`` it."""
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -250,7 +264,7 @@ def _score_system(
         identity = {
             "chat_template_sha256": _sha256(str(tok.chat_template)),
             "tokenizer_sha256": tokenizer_hash(tok),
-            "model_revision": getattr(model.config, "_commit_hash", None),
+            "model_revision": model_revision(cfg.model_name),
             "dtype": str(next(model.parameters()).dtype),
         }
         key = {
