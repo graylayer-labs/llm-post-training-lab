@@ -43,7 +43,7 @@ yet.
 - **Why:** finance-alpaca repeats prompts. Of the 55,835 rows that pass the
   length filter, 7,587 (13.6%) are duplicates, and 4 of the 200 Part 1
   held-out prompts were also training rows. Fixing the split at its source
-  guards every later stage, and the DPO and eval code reuse the same
+  guards every later stage, and the DPO and eval code should reuse the same
   `prompt_key`. The cost: the reshuffle changes which rows are drawn, so only
   2 of the 200 new held-out prompts were in the old set, and the Part 1
   numbers are not comparable with the re-run in #12. Measured on
