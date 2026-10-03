@@ -12,9 +12,9 @@ One run per stage, one seed, `Qwen/Qwen2.5-0.5B` on an Apple M4 with 24 GB.
 The write-up is [docs/what-each-stage-changed.md](docs/what-each-stage-changed.md);
 the memory and 70B reasoning is [docs/memory-and-scale.md](docs/memory-and-scale.md).
 
-- **SFT taught the model to stop and to answer in the data's style.** On 200
-  held-out prompts the base model stops on 39.5% and SFT on 86.5%; ROUGE-L
-  against the references nearly doubled, 0.153 to 0.297. It took training
+- **SFT taught the model to stop, and moved its answers closer to the
+  reference answers (ROUGE-L 0.153 → 0.297).** On 200 held-out prompts the
+  base model stops on 39.5% and SFT on 86.5%. It took training
   the two chat-token embedding rows as well as the LoRA: LoRA alone could
   not reach the tied `<|im_end|>` row, and TRL's default loss skipped the
   fix.

@@ -181,8 +181,10 @@ What changed:
 
 - **Stopping and length.** SFT answers end on the stop token and are much
   shorter. This is the clearest effect.
-- **Register.** Finance answers take on the first-person forum style of the
-  training data ("I would not do that").
+- **Register (illustrative).** In these five Part 1 samples, the finance
+  answers take on the first-person forum style of the training data ("I
+  would not do that"). Five samples from a dirty tree illustrate this;
+  they do not measure it.
 - **Not fixed.** Repetition loops remain, and factual quality is mixed. Five
   samples cannot say whether SFT improved correctness. That is Part 3's job.
 

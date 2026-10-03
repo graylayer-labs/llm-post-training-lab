@@ -70,11 +70,11 @@ it stops on 86.5% and 27 answers hit the limit
 `b872427`). Mean new tokens fell from 270.0 to 111.6, the median from 384
 to 66.
 
-**Register.** The finance answers take on the first-person forum style of
-the training data ("I would not do that. I would put the money in a savings
-account..."). That is from the Part 1 samples
-([sft-results.md](sft-results.md), "Base vs SFT answers"), which came from
-a dirty tree, so they illustrate and are not quoted as results.
+**Register (illustrative Part 1 samples).** In the Part 1 samples, the
+finance answers take on the first-person forum style of the training data
+("I would not do that. I would put the money in a savings account...")
+([sft-results.md](sft-results.md), "Base vs SFT answers"). Those samples
+came from a dirty tree, so they illustrate and are not quoted as results.
 
 **Closer to the references.** ROUGE-L 0.153 to 0.297, nearly double.
 Perplexity of the references 8.910 to 6.245. On the 69 prompts where both
