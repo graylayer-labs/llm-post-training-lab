@@ -1,6 +1,6 @@
 # 6. Evaluating without a benchmark
 
-*Last updated 2026-10-03 from issues #3, #23*
+*Last updated 2026-10-04 from issues #3, #23, #37, #35*
 
 ## What we set out to do
 
@@ -78,6 +78,49 @@ rubric counts it as a fix (index 2). A short loop can also pass, because
 `repetition` counts repeats and a short answer has fewer chances to
 repeat (index 29) ([eval-results.md][res-short]).
 
+### The blind correctness check (#37, #35)
+
+The rubric cannot say whether DPO answers *better*, so 50 of the 200
+prompts were graded for correctness, blind. `tools/blind_grading.py sheet`
+(#37) wrote a sheet with each prompt, its reference and the three answers
+under labels A/B/C shuffled per prompt; the label-to-system key was kept
+apart. Two Claude subagent graders, one Opus and one Sonnet, graded every
+answer `correct`, `partly` or `wrong`. The grading was by models, not a
+person. Source: [eval-results.md][res-blind] (`outputs/grading/v1/results.md`,
+unblinded at `66b837b`).
+
+| Correct | base | SFT | DPO |
+|---|---|---|---|
+| Opus | 10.0% (5/50) | 30.0% (15/50) | 44.0% (22/50) |
+| Sonnet | 12.0% (6/50) | 30.0% (15/50) | 48.0% (24/50) |
+
+- The graders agree on 84.0% of 150 answers, kappa 0.756.
+- Passing the rubric is not being correct: of SFT's rubric passes, 34.3%
+  (Opus) and 40.0% (Sonnet) are graded correct.
+- DPO over SFT, paired: +14.0 points [+0.0, +28.0] (Opus), +18.0 [+6.0,
+  +28.0] (Sonnet).
+- **Correct, or just not looping?** A loop is graded wrong, so the same
+  difference was taken on only the 35 prompts where the rubric passes both
+  SFT and DPO: +8.6 [−8.6, +22.9] and +11.4 [+0.0, +25.7]
+  (`outputs/grading/v1/subset.json`, computed at branch commit `b3b5567`
+  before merge). Still DPO's way, but both intervals reach zero. Over half
+  of DPO's extra correct answers are on the 15 prompts where SFT's answer
+  failed the rubric.
+
+So the write-up's earlier claim, "DPO stops and loops less", not "DPO
+answers better", becomes: DPO stops and loops less, and is graded correct
+more often, with over half of that gain where SFT's answer failed the
+rubric; better answers where SFT was already clean are suggested, not
+shown.
+
+**A grader that did not read.** The first Sonnet grader said it had judged
+mostly from the first ~300 characters and the answer length, and graded
+partly with a script. Length is the thing DPO changed most, so those grades
+would measure length, not correctness. The lead discarded them and reran
+Sonnet with an instruction to read every answer in full and grade by hand,
+in batches. The discarded file is kept under
+`outputs/grading/v1/discarded/` and feeds no result.
+
 ## Decisions and why
 
 - **No model judge.** The owner was offered about 1,200 Claude API calls
@@ -86,6 +129,10 @@ repeat (index 29) ([eval-results.md][res-short]).
   dependency was removed. Cost: nothing scores correctness or completeness.
 - **Batch size 16 for the full run.** At batch size 1 the base model would
   have held a shared GPU for about 85 minutes ([decisions.md][batch]).
+- **A blind correctness check by two model graders.** The owner chose it
+  on 2026-10-04 to close part of the judge gap inside the subscription:
+  50 prompts, two graders on different models, the paired difference also
+  on the both-pass subset ([decisions.md][blind]).
 
 ## Limits
 
@@ -101,6 +148,10 @@ All from [eval-results.md][res-limits].
   rise from 6.245 to 6.555 does not show its answers got worse.
 - Decoding at batch 16 is not bit-identical to one-at-a-time.
 - Wall time (1,562.8 s) was contended by another project's GPU jobs.
+- The correctness check is 50 prompts, graded by two Claude models that may
+  share biases and, though blind to the system, can see loops and length.
+  Grading a loop with right content as `partly` mixes correctness with
+  looping ([eval-results.md][res-blind]).
 
 ## How to reproduce it
 
@@ -117,11 +168,32 @@ uv run python tools/compare_systems.py outputs/eval/generations \
 Needs the SFT and DPO runs in `outputs/`. Files: `src/post_training/eval/harness.py`,
 `metrics.py`, `tools/compare_systems.py`.
 
+The blind check runs on CPU from the saved generations. The grading
+between `sheet` and `unblind` is done by the grader agents, and `subset`
+comes with #35:
+
+```bash
+uv run python tools/blind_grading.py sheet \
+    --gens-dir outputs/eval/generations --rows outputs/sft/eval_rows.json \
+    --n 50 --seed 0 --out outputs/grading/v1
+uv run python tools/blind_grading.py unblind --dir outputs/grading/v1 \
+    --grades outputs/grading/v1/grades_opus.jsonl \
+    --grades outputs/grading/v1/grades_sonnet.jsonl
+uv run python tools/blind_grading.py subset --dir outputs/grading/v1 \
+    --grades outputs/grading/v1/grades_opus.jsonl \
+    --grades outputs/grading/v1/grades_sonnet.jsonl
+```
+
+Files: `src/post_training/eval/grading.py`, `tools/blind_grading.py`.
+
 ## What we would do differently
 
-- Add a correctness check, even a small hand-graded set. This follows from
-  the rubric passing a wrong answer (index 50) and having no judge
-  ([eval-results.md][res-limits]; [decisions.md][nojudge]).
+- Check a sample of the model grades by hand, and save each grader's
+  instructions beside its grades. The correctness check rests on two
+  models and a brief that is not on disk ([eval-results.md][res-blind]).
+- Make a grader show it read each answer before accepting its grades. The
+  first Sonnet grader judged from length and the first ~300 characters,
+  and was caught only because it said so ([eval-results.md][res-blind]).
 - Use length-matched pairs in the next DPO run. This follows from the length
   check, which could not separate "no loops" from "shorter"
   ([eval-results.md][res-short]).
@@ -136,6 +208,8 @@ Needs the SFT and DPO runs in `outputs/`. Files: `src/post_training/eval/harness
 [res-changed]: ../eval-results.md#what-each-stage-changed
 [res-short]: ../eval-results.md#is-it-just-shorter
 [res-limits]: ../eval-results.md#limits
+[res-blind]: ../eval-results.md#blind-correctness-check
+[blind]: ../decisions.md#check-correctness-blind-with-two-model-graders
 [heldout]: ../decisions.md#read-the-held-out-rows-from-the-sft-runs-saved-file
 [batch]: ../decisions.md#treat-the-generation-batch-size-as-a-setting
 [nojudge]: ../decisions.md#evaluate-without-a-model-judge

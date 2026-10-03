@@ -32,7 +32,7 @@ Chapters are written with `/guide` once a stage's results land.
 | 3 | [The stop-token bug](03-the-stop-token-bug.md) | 2026-10-03 | #19, #12, #1 |
 | 4 | [Trustworthy runs](04-trustworthy-runs.md) | 2026-10-03 | #10, #11, #15, #21, #23, #12 |
 | 5 | [Preference optimisation (DPO)](05-preference-optimisation.md) | 2026-10-03 | #2, #26 |
-| 6 | [Evaluating without a benchmark](06-evaluating-without-a-benchmark.md) | 2026-10-03 | #3, #23 |
+| 6 | [Evaluating without a benchmark](06-evaluating-without-a-benchmark.md) | 2026-10-04 | #3, #23, #37, #35 |
 
 ## Notes
 

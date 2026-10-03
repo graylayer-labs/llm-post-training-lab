@@ -4,8 +4,8 @@
 
 We ran LoRA SFT and then DPO on `Qwen/Qwen2.5-0.5B`, on one laptop, with
 the preference pairs built from the project's own data, and scored base,
-SFT and DPO on the same 200 held-out prompts with no benchmark and no model
-judge. The rule-based rubric pass rate went from 35.0% for base to 73.0%
+SFT and DPO on the same 200 held-out prompts with no benchmark and no paid
+model judge. The rule-based rubric pass rate went from 35.0% for base to 73.0%
 after SFT and 89.0% after DPO, and every DPO answer stopped cleanly
 ([eval-results.md, "The table"](../eval-results.md#the-table)). Most of
 that gain is one behaviour, "do not loop", and DPO also learned something
@@ -28,7 +28,8 @@ batch size 16, one seed; copied from
 One run per stage, one seed, 200 prompts. The rubric is rule-based: format,
 a clean stop, no repetition, and two finance-only rules that apply to 24 of
 the 200 prompts ([eval-results.md, "How to read it"](../eval-results.md#how-to-read-it)).
-Nothing in the table scores whether an answer is correct.
+Nothing in the table scores whether an answer is correct; a blind,
+model-graded check on 50 of the prompts, further down, does.
 
 **SFT taught the model to end a turn.** The base model keeps the chat format
 but stops on only 39.5% of prompts and runs 121 answers to the 384-token
@@ -75,6 +76,21 @@ rubric counts that as a DPO fix. Perplexity of the references rose from
 answers, and it says nothing about the quality of DPO's own answers either
 way ([eval-results.md, "What each stage changed"](../eval-results.md#what-each-stage-changed)).
 
+**Graded blind, DPO is correct more often, but over half of the gain is
+where SFT looped.** Two Claude graders, Opus and Sonnet, graded 50 of the
+prompts against the reference without knowing which system wrote which
+answer. This is grading by models, not a person. Correct: base 10.0% and
+12.0%, SFT 30.0% and 30.0%, DPO 44.0% and 48.0% (Opus and Sonnet), with
+the graders agreeing on 84.0% of answers (kappa 0.756). Passing the rubric
+is not being correct: only 34.3% and 40.0% of SFT's rubric passes are
+graded correct. DPO's paired gain over SFT is +14.0 points [+0.0, +28.0]
+and +18.0 [+6.0, +28.0]. A loop is graded wrong, so the same comparison was
+run on only the 35 prompts where the rubric passes both: +8.6 [−8.6,
++22.9] and +11.4 [+0.0, +25.7]. Still DPO's way, but both intervals reach
+zero. The first Sonnet grader was discarded for judging from length and
+the first ~300 characters; the kept grades are a rerun that read every
+answer ([eval-results.md, "Blind correctness check"](../eval-results.md#blind-correctness-check)).
+
 ## What it means
 
 If you have one machine and no benchmark, SFT and DPO on your own data can
@@ -84,13 +100,18 @@ those, and it can also choose the DPO rejected answers, so training and
 evaluation agree on what "bad" means. Watch the pairs for a length gap,
 because the model will learn it.
 
-What this result does not show is that DPO answers better. Nothing here
-scores correctness or completeness, the intervals are several points wide
-([66.5, 79.0] for SFT and [84.5, 93.0] for DPO, from
-[eval-results.md](../eval-results.md#limits)),
-it is one seed, and the finance rules rest on 24 prompts. The honest claim
-is "DPO stops and loops less", and a correctness check, even a small
-hand-graded set, is the next thing to add.
+What this result shows about correctness is narrow. On 50 blind-graded
+prompts DPO is graded correct more often than SFT, and over half of that
+gain is on prompts where SFT's answer failed the rubric, mostly by
+looping. Where SFT already gave a clean answer, DPO is ahead by 3 or 4
+prompts of 35, which is not enough to separate from zero. The rubric
+intervals are several points wide ([66.5, 79.0] for SFT and [84.5, 93.0]
+for DPO, from [eval-results.md](../eval-results.md#limits)), the grading
+was by two models that may share biases, it is one seed, and the finance
+rules rest on 24 prompts. The honest claim is "DPO stops and loops less,
+and is graded correct more often, over half of that where SFT looped". A
+person
+grading a sample of the answers is the next thing to add.
 
 ## The detail
 
