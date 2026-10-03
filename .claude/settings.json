@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv sync *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv run ty *)",
+      "Bash(uv run lab *)",
+      "Bash(gh issue view *)",
+      "Bash(gh issue list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh run *)",
+      "Bash(gh project item-list *)"
+    ],
+    "ask": [
+      "Bash(gh repo edit *)",
+      "Bash(gh repo delete *)",
+      "Bash(gh release *)",
+      "Bash(git push origin --delete *)",
+      "Bash(git reset --hard *)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f)",
+      "Bash(git push origin main*)"
+    ]
+  },
+  "autoMode": {
+    "soft_deny": [
+      "$defaults",
+      "Calling a paid API or using an API key, including the Anthropic API",
+      "Starting paid cloud compute or any paid service",
+      "Starting a local training or generation run expected to take more than one hour",
+      "Publishing a blog post or anything else outside the repository",
+      "Changing repository settings, visibility or branch protection"
+    ]
+  },
+  "worktree": {
+    "symlinkDirectories": ["outputs"]
+  }
+}
