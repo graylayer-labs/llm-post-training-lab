@@ -195,6 +195,31 @@ yet.
   case after 22 characters. Measured on 2026-10-03, not saved.
 
 
+### Checkpoint training runs and resume after a crash
+
+*2026-10-03*
+
+- **Chose:** SFT saves a checkpoint (adapter, optimizer, scheduler, RNG
+  state) every `train.save_steps` steps under `<output_dir>/checkpoints`, and
+  `lab sft --resume` continues from the newest complete one. Starting over
+  existing checkpoints is refused. A resume must match the original commit
+  (`provenance.json`) and config (`config.json`), on a clean tree, unless
+  `--scratch`. The pre-training eval is saved and reused. `train_loss` is the
+  mean of the logged step losses.
+- **Over:** `save_strategy="no"`, where a crash at step 120 of 125 loses the
+  whole run.
+- **Why:** The real Part 1 SFT run was killed (see #21), and the GPU is shared
+  with other jobs. A resumed run must still be one commit's code, or its
+  numbers cannot be traced.
+- **Cost:** The Trainer's own `training_loss` is wrong after a resume (its
+  running total restarts at 0 but is divided by the full step count; 3.380
+  against 4.160 on a tiny CPU run), so the log is used instead. Wall time,
+  peak memory and trainer timings of a resumed run cover only the resumed
+  part, flagged by `resumed_segment_only`. The Trainer does not restore MPS
+  RNG state, so with LoRA dropout a resumed MPS run is statistically
+  equivalent to an uninterrupted one, not bit-identical; on CPU it matched
+  exactly.
+
 ### Describe each run in a config file
 
 *2026-10-03*
