@@ -226,10 +226,12 @@ Each item links the section that holds the detail.
   batch size is recorded as a generation setting and held at 16 for every
   system, and it is part of the samples cache key for the pairs.
   [decisions.md, "Treat the generation batch size as a setting"](decisions.md#treat-the-generation-batch-size-as-a-setting).
-- **A misreading caught in review.** The DPO summary's `logps_change`
-  compares step 1 with step 18 and shows the chosen log-prob rising by
-  +67.178 (−279.884 to −212.707). A first reading took that as DPO raising
-  the chosen answers. It is mostly a change of batch: steps 1 and 18 score
+- **A misreading, caught by checking the saved file.** The DPO summary's
+  `logps_change` compares step 1 with step 18 and shows the chosen log-prob
+  rising by +67.178 (−279.884 to −212.707). The lead read that as DPO
+  raising the chosen answers, and wrote it into the brief for the results
+  doc; the agent writing the doc checked it against the summary and
+  corrected it. It is mostly a change of batch: steps 1 and 18 score
   different pairs. The like-for-like held-out pairs show chosen roughly
   flat, slightly down (−281.671 to −286.481), while rejected fell by 59.24
   nats. The honest reading is that chosen held steady while rejected fell.
