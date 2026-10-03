@@ -157,15 +157,26 @@ class PairsConfig:
     output_dir: str
     sft_run_dir: str = "outputs/sft"
     n_prompts: int = 200
-    k: int = 4
+    # "greedy": one answer per prompt, do_sample off, as the eval harness
+    # decodes; temperature / top_p / top_k are then unused and recorded as
+    # null. Greedy bf16 output depends on batch_size, which is in the key.
+    # "sample": k answers per prompt with the sampling settings below.
+    decoding: str = "greedy"
+    k: int = 1
     temperature: float = 1.0
     top_p: float = 1.0
     top_k: int = 0
     seed: int = 0
-    batch_size: int = 8
+    batch_size: int = 16
     max_new_tokens: int = 384
 
     def __post_init__(self) -> None:
+        if self.decoding not in ("greedy", "sample"):
+            raise ValueError(
+                f"decoding={self.decoding!r}: must be 'greedy' or 'sample'"
+            )
+        if self.decoding == "greedy" and self.k != 1:
+            raise ValueError(f"k={self.k}: greedy decoding gives one answer, k=1")
         if self.max_new_tokens < 384:
             raise ValueError(
                 f"max_new_tokens={self.max_new_tokens}: need at least 384 so that "

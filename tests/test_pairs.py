@@ -71,10 +71,25 @@ def test_limit_plus_number_failure_is_still_ambiguous() -> None:
 
 def test_pairs_config_defaults_and_yaml(tmp_path: Path) -> None:
     p = tmp_path / "pairs.yaml"
-    p.write_text("output_dir: o\nn_prompts: 3\nk: 2\n")
+    p.write_text("output_dir: o\nn_prompts: 3\ndecoding: sample\nk: 2\n")
     cfg = load_config(p, PairsConfig)
     assert cfg.sft_run_dir == "outputs/sft"
     assert (cfg.n_prompts, cfg.k, cfg.max_new_tokens) == (3, 2, 384)
+
+
+def test_pairs_config_defaults_to_greedy_one_answer() -> None:
+    cfg = PairsConfig(output_dir="o")
+    assert (cfg.decoding, cfg.k) == ("greedy", 1)
+
+
+def test_greedy_with_several_answers_is_refused() -> None:
+    with pytest.raises(ValueError, match="greedy"):
+        PairsConfig(output_dir="o", decoding="greedy", k=2)
+
+
+def test_unknown_decoding_is_refused() -> None:
+    with pytest.raises(ValueError, match="decoding"):
+        PairsConfig(output_dir="o", decoding="beam")
 
 
 def test_short_token_budget_is_refused(tmp_path: Path) -> None:
@@ -123,6 +138,7 @@ class Gen:
         self.calls = 0
         self.crash_after = crash_after
         self.prompts_seen: list[str] = []
+        self.kwargs: list[dict[str, Any]] = []
 
     def __call__(
         self,
@@ -138,17 +154,24 @@ class Gen:
         self.calls += 1
         settings = kw.get("settings_out")
         if settings is not None:
+            # Mirrors post_training.generate: sampling keys only when sampling.
+            if kw.get("do_sample"):
+                settings.update(
+                    do_sample=True,
+                    temperature=kw["temperature"],
+                    top_p=kw["top_p"],
+                    top_k=kw["top_k"],
+                    repetition_penalty=1.0,
+                )
+            else:
+                settings.update(do_sample=False)
             settings.update(
-                do_sample=kw["do_sample"],
-                temperature=kw["temperature"],
-                top_p=kw["top_p"],
-                top_k=kw["top_k"],
-                repetition_penalty=1.0,
                 max_new_tokens=max_new_tokens,
                 batch_size=batch_size,
                 seed=kw["seed"],
                 stop_token_ids=[1, 2],
             )
+        self.kwargs.append(kw)
         out = []
         seen: dict[str, int] = {}
         for m in messages:
@@ -230,10 +253,15 @@ def _cfg(tmp_path: Path, run: Path, **kw: Any) -> PairsConfig:
         "output_dir": str(tmp_path / "pairs"),
         "sft_run_dir": str(run),
         "n_prompts": 6,
+        "decoding": "sample",
         "k": 2,
         "batch_size": 4,
     }
     return PairsConfig(**{**base, **kw})
+
+
+def _greedy(tmp_path: Path, run: Path, **kw: Any) -> PairsConfig:
+    return _cfg(tmp_path, run, **{"decoding": "greedy", "k": 1, **kw})
 
 
 def _read_jsonl(p: Path) -> list[dict[str, Any]]:
@@ -449,6 +477,47 @@ def test_half_batch_is_cut_back_to_a_batch_boundary(
     assert m["throughput"]["samples_reused"] == 4
 
 
+def test_greedy_decodes_once_per_prompt_without_sampling_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _sft_run(tmp_path)
+    gen = Gen()
+    _setup(monkeypatch, gen)
+    m = pairs.run_pairs(_greedy(tmp_path, run, temperature=0.7))
+    assert all(kw["do_sample"] is False for kw in gen.kwargs)
+    assert all("temperature" not in kw for kw in gen.kwargs)
+    assert gen.prompts_seen == [r["instruction"] for r in TRAIN]
+    g = m["generation"]
+    assert g["decoding"] == "greedy"
+    assert g["do_sample"] is False
+    assert (g["temperature"], g["top_p"], g["top_k"]) == (None, None, None)
+    assert g["k"] == 1 and g["batch_size"] == 4
+    # Greedy outcomes are sample 0 of each prompt: GOOD, LEAK, GOOD,
+    # LIMIT_ONLY, NOSTOP_REPEAT, GOOD.
+    c = m["counts"]
+    assert c["pairs_kept"] == 2
+    assert c["yield"] == pytest.approx(2 / 6)
+    assert c["rejected_share_by_rule"] == pytest.approx(
+        {"format": 1 / 6, "repetition": 1 / 6, "no_stop_and_repetition": 1 / 6}
+    )
+    assert c["no_stop_share"] == pytest.approx(2 / 6)
+
+
+def test_greedy_batch_size_is_part_of_the_cache_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _sft_run(tmp_path)
+    _setup(monkeypatch, Gen())
+    pairs.run_pairs(_greedy(tmp_path, run, batch_size=2))
+    key = json.loads(
+        (tmp_path / "pairs" / "samples.jsonl").read_text().splitlines()[0]
+    )["cache_key"]
+    assert key["generation"]["batch_size"] == 2
+    _setup(monkeypatch, Gen())
+    with pytest.raises(pairs.CacheKeyError):
+        pairs.run_pairs(_greedy(tmp_path, run, batch_size=3))
+
+
 def test_raising_n_prompts_extends_without_resampling(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -567,15 +636,20 @@ def test_cli_runs_pairs_from_yaml(
     got: list[PairsConfig] = []
     monkeypatch.setattr(pairs, "run_pairs", lambda cfg: got.append(cfg) or {})
     p = tmp_path / "c.yaml"
-    p.write_text("output_dir: o\nk: 3\n")
+    p.write_text("output_dir: o\ndecoding: sample\nk: 3\n")
     monkeypatch.setattr("sys.argv", ["lab", "pairs", "--config", str(p)])
     cli.main()
-    assert got == [PairsConfig(output_dir="o", k=3)]
+    assert got == [PairsConfig(output_dir="o", decoding="sample", k=3)]
 
 
 @pytest.mark.parametrize("name", ["pairs.yaml", "pairs_smoke.yaml"])
 def test_shipped_pairs_configs_load(name: str) -> None:
     root = Path(__file__).resolve().parents[1]
     cfg = load_config(root / "configs" / name, PairsConfig)
-    assert cfg.max_new_tokens >= 384
-    assert cfg.batch_size % cfg.k == 0
+    assert cfg.max_new_tokens == 384
+    assert cfg.decoding == "greedy" and cfg.k == 1
+    assert cfg.batch_size == 16
+    if name == "pairs.yaml":
+        assert (cfg.n_prompts, cfg.sft_run_dir) == (1000, "outputs/sft")
+    else:
+        assert cfg.n_prompts <= 32

@@ -197,18 +197,25 @@ def _sample(
             seed = gen["seed"] + start // bs
             settings: dict[str, Any] = {}
             t0 = time.time()
+            sampling: dict[str, Any] = (
+                {
+                    "do_sample": True,
+                    "temperature": cfg.temperature,
+                    "top_p": cfg.top_p,
+                    "top_k": cfg.top_k,
+                }
+                if cfg.decoding == "sample"
+                else {"do_sample": False}
+            )
             outs = generate(
                 model,
                 tok,
                 [prompt_messages(rows[i]) for i, _ in batch],
                 max_new_tokens=cfg.max_new_tokens,
                 batch_size=bs,
-                do_sample=True,
-                temperature=cfg.temperature,
-                top_p=cfg.top_p,
-                top_k=cfg.top_k,
                 seed=seed,
                 settings_out=settings,
+                **sampling,
             )
             seconds += time.time() - t0
             if settings != {**gen, "seed": seed}:
@@ -306,6 +313,11 @@ def _counts(
             all(s["verdict"] == "pass" for s in g) for g in groups
         ),
         "pairs_kept": len(pairs),
+        "yield": len(pairs) / len(rows) if rows else None,
+        "rejected_share_by_rule": {
+            r: reasons[r] / n if n else None for r in REJECT_REASONS
+        },
+        "no_stop_share": sum(not s["stopped"] for s in samples) / n if n else None,
         "pairs_dropped_rejected_equals_chosen": dropped,
         "stopped_share": sum(s["stopped"] for s in samples) / n if n else None,
         "mean_new_tokens": sum(s["new_tokens"] for s in samples) / n if n else None,
@@ -342,12 +354,19 @@ def run_pairs(cfg: PairsConfig) -> dict[str, Any]:
     try:
         if hasattr(model, "eval"):
             model.eval()
-        generation = {
-            "do_sample": True,
-            "temperature": cfg.temperature,
-            "top_p": cfg.top_p,
-            "top_k": cfg.top_k,
-            "repetition_penalty": 1.0,
+        # Exactly what generate() reports back, so drift is caught.
+        generation: dict[str, Any] = (
+            {
+                "do_sample": True,
+                "temperature": cfg.temperature,
+                "top_p": cfg.top_p,
+                "top_k": cfg.top_k,
+                "repetition_penalty": 1.0,
+            }
+            if cfg.decoding == "sample"
+            else {"do_sample": False}
+        )
+        generation |= {
             "max_new_tokens": cfg.max_new_tokens,
             "batch_size": cfg.batch_size,
             "seed": cfg.seed,
@@ -419,7 +438,14 @@ def run_pairs(cfg: PairsConfig) -> dict[str, Any]:
         "tokenizer_sha256": key["tokenizer_sha256"],
         "rubric_version": RUBRIC_VERSION,
         "rejection_rule": REJECTION_RULE,
-        "generation": {**generation, "k": cfg.k},
+        "generation": {
+            "decoding": cfg.decoding,
+            "temperature": None,
+            "top_p": None,
+            "top_k": None,
+            **generation,
+            "k": cfg.k,
+        },
         "counts": _counts(rows, samples, cfg.k, pairs, dropped),
         "throughput": {
             "samples_generated": generated,
