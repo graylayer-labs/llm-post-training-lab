@@ -225,8 +225,9 @@ outputs/, data/     run outputs and data, gitignored
   read-only reviewers, a guide writer, and a GitHub agent that pushes and
   merges. The process is written down in [CLAUDE.md](CLAUDE.md) and
   [.claude/](.claude/).
-- Every code change went through review before merge. Reviews caught real
-  bugs: a wrong train loss after resume
+- Every change under `src/` got a read-only reviewer agent's pass before
+  merge; docs, configs and analysis tools were read by the lead session.
+  Reviews caught real bugs: a wrong train loss after resume
   ([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21)),
   and the eval loading DPO on the wrong base and a scratch resume marked
   quotable ([PR #27](https://github.com/graylayer-labs/llm-post-training-lab/pull/27)).
