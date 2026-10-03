@@ -650,6 +650,6 @@ def test_shipped_pairs_configs_load(name: str) -> None:
     assert cfg.decoding == "greedy" and cfg.k == 1
     assert cfg.batch_size == 16
     if name == "pairs.yaml":
-        assert (cfg.n_prompts, cfg.sft_run_dir) == (1000, "outputs/sft")
+        assert (cfg.n_prompts, cfg.sft_run_dir) == (500, "outputs/sft")
     else:
         assert cfg.n_prompts <= 32

@@ -3,7 +3,7 @@
 sft_run_dir: outputs/sft
 output_dir: outputs/pairs
 
-n_prompts: 1000       # first n training prompts of the SFT run's split
+n_prompts: 500       # first n training prompts of the SFT run's split
 decoding: greedy      # one answer per prompt, as the eval harness decodes
 k: 1                  # greedy gives one answer
 # temperature, top_p and top_k apply only to decoding: sample; with greedy
