@@ -184,12 +184,119 @@ judge was dropped on 2026-10-03. The rubric part stands.
   Each judged pair is sent in both orders. An order-dependent verdict counts
   as inconsistent, not a win. See #3.
 
+### Use the SFT model as DPO's reference by merging its adapter
+
+*2026-10-03*
+
+- **Chose:** merge the SFT adapter into the base weights, train a fresh
+  LoRA on the merged model, and let TRL take reference log-probs with that
+  LoRA disabled. The reference is then exactly the merged SFT model.
+  `reference: sft` is in the config and `summary.json`.
+- **Over:** passing the SFT `PeftModel` to `DPOTrainer`.
+- **Why:** With a PEFT policy, TRL's reference is the model with adapters
+  off, which is the base model if the SFT adapter is the one being trained.
+  TRL's other route copies the SFT adapter to a "ref" adapter, but it
+  matches parameter names containing `.default.`. That misses
+  `trainable_tokens_delta.default`, the trained `<|im_start|>` and
+  `<|im_end|>` rows, so the reference would silently not be SFT. A test on
+  a tiny model checks the reference log-probs equal SFT's and differ from
+  base's.
+- **Cost:** the merge is done in bf16, so the reference differs from the
+  unmerged SFT model by rounding. The trained policy is
+  merge(base, SFT adapter) plus the DPO LoRA, and must be loaded that way.
+
+### Draw rejected answers from greedy decoding
+
+*2026-10-03*, owner decision
+
+- **Chose:** the rejected candidate for each prompt is the SFT model's
+  greedy answer (`decoding: greedy`, one answer per prompt, batch size 16,
+  384 tokens). The rejection rule is unchanged: format or repetition.
+- **Over:** temperature-1.0 samples, and skipping DPO.
+- **Why:** with the post-dedup SFT adapter (`outputs/sft`), 0 of 96
+  temperature-1.0 samples were rejected (9% and 2% ambiguous in two
+  scratch runs at batch 8 and 16). SFT's remaining failure is greedy
+  looping: 21 of 96 greedy answers on the first 96 training prompts fail
+  `repetition`, and 14 of them never stop. The eval harness also decodes
+  greedily, so DPO targets the failure the eval measures. Greedy bf16
+  output depends on batch size, so batch size is part of the samples
+  cache key.
+- **Figures:** measured but not saved, from the lead's and the
+  implementer's scratch runs on 2026-10-03. The full run's `manifest.json`
+  will hold the quotable ones (yield, rejected share by rule, share not
+  stopped).
+
+### Treat held-out pair accuracy as a fit check, not a result
+
+*2026-10-03*
+
+- **Chose:** report DPO's reward accuracy and margins on the held-out
+  pairs only as a check that training fits the preference data. Claims
+  about what DPO changed come from the eval harness on the SFT run's
+  held-out prompts.
+- **Over:** quoting held-out pair accuracy as DPO's effect.
+- **Why:** the held-out pairs come from the same SFT *training* prompts as
+  the training pairs, and their chosen answers are references SFT trained
+  on. Their accuracy measures fit to that pair distribution, not
+  generalisation. The summary also records completion lengths and
+  per-token log-probs on those pairs. Rejected samples are long rambles,
+  so a "shorter wins" shortcut would show there.
+
+### Grow the pair set by raising n_prompts
+
+*2026-10-03*
+
+- **Chose:** the samples cache is keyed on the whole ordered training split,
+  so a re-run with a larger `n_prompts` keeps every saved sample and only
+  samples the new prompts. A smaller `n_prompts` is refused.
+- **Over:** keying on the first `n_prompts` prompts, which forced a full
+  resample to grow the set.
+- **Why:** the full run is sized from measured throughput. Starting small
+  and extending wastes nothing. The saved samples are reused whole only
+  when the earlier `n_prompts * k` is a multiple of `batch_size`.
+  Otherwise the earlier run's last, partial batch is sampled again, so
+  that batches keep a fixed composition and seed.
+
+### Drop the end-of-turn token from rejected samples that never stopped
+
+*2026-10-03*
+
+- **Chose:** remove the `<|im_end|>` that TRL's chat template appends to a
+  rejected completion when the sample hit the token limit.
+- **Over:** TRL's default rendering.
+- **Why:** The model never produced that token. Keeping it would make DPO
+  push down "stop here" after a ramble, against what SFT taught.
+
+### Reject samples on format and repetition only
+
+*2026-10-03*, owner decision
+
+- **Chose:** a sample is rejected if it fails the rubric's `format` rule, or
+  its `repetition` rule, or did not stop and fails `repetition`. Chosen is
+  the dataset's reference answer. Samples use at least 384 new tokens. A
+  sample that only hit the limit is ambiguous: it is skipped and counted.
+  The pair takes the first rejected sample by sample index.
+- **Over:** rejecting on any rubric failure, including `ungrounded_numbers`
+  and `domain_terms`, and picking the worst sample.
+- **Why:** The number rule fails 37.5% of finance references and fails
+  correct arithmetic, so rejecting on it would teach DPO to avoid concrete
+  figures. Those two rules are logged per sample and counted, never used to
+  reject. At 384 tokens, a sample that hit the limit may be a long good
+  answer, so it is not a safe rejected example. Taking the first rejected
+  sample, not the worst, keeps the set from leaning towards the most
+  degenerate, easiest-to-separate answers.
+- **Note:** "did not stop and fails repetition" is a subset of "fails
+  repetition", so the rule is format OR repetition. It is still counted
+  separately in `manifest.json`.
+
 ### Build the DPO preference pairs from the project's own data
 
-*2026-10-03*, **Planned**
+*2026-10-03*
 
 - **Chose:** a home-made preference set for DPO. Chosen is the reference
-  answer, and rejected is an SFT sample that fails the rubric.
+  answer, and rejected is an SFT sample that fails the rubric. The prompts
+  are the SFT run's own training prompts: the split is rebuilt from its
+  `summary.json` and must match its `eval_rows.json`, or `lab pairs` stops.
 - **Over:** a public preference dataset.
 - **Why:** Real users rarely have preference data, so building pairs from SFT
   data is the realistic case. It also ties the signal to the same rubric

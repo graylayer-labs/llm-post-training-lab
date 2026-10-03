@@ -1,0 +1,10 @@
+# Stage 2a smoke test: a few prompts, greedy, the full 384-token budget.
+sft_run_dir: outputs/sft_smoke
+output_dir: outputs/pairs_smoke
+
+n_prompts: 16
+decoding: greedy
+k: 1
+seed: 0
+batch_size: 16
+max_new_tokens: 384

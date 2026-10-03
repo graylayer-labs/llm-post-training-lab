@@ -11,7 +11,8 @@ limit: null       # all 200
 systems:          # a system whose adapter is missing is reported as skipped
   - {name: base, adapter: null}
   - {name: sft, adapter: outputs/sft/adapter}
-  - {name: dpo, adapter: outputs/dpo/adapter}
+  # DPO's LoRA was trained on merge(base, SFT adapter), so it is loaded there.
+  - {name: dpo, adapter: outputs/dpo/adapter, base_adapter: outputs/sft/adapter}
 
 generation:       # greedy, identical for every system
   max_new_tokens: 384

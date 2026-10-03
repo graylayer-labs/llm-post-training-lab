@@ -1,0 +1,16 @@
+# Stage 2a: preference pairs from the SFT model's own answers.
+# Model, adapter and data split all come from sft_run_dir.
+sft_run_dir: outputs/sft
+output_dir: outputs/pairs
+
+n_prompts: 500       # first n training prompts of the SFT run's split
+decoding: greedy      # one answer per prompt, as the eval harness decodes
+k: 1                  # greedy gives one answer
+# temperature, top_p and top_k apply only to decoding: sample; with greedy
+# they are unused and recorded as null in the manifest.
+temperature: 1.0
+top_p: 1.0
+top_k: 0
+seed: 0
+batch_size: 16        # greedy bf16 output depends on it; part of the cache key
+max_new_tokens: 384   # >= 384 so a long answer is not mistaken for no stop
