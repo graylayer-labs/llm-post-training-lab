@@ -9,7 +9,7 @@ adapting an open model to their own data should care.>
 
 ## The result
 
-<The numbers, each linked to its source. One seed and 200 prompts: say so.
+<The numbers, with one source link per paragraph. One seed and 200 prompts: say so.
 For a negative result, say what was expected, what happened and the likely
 reason.>
 

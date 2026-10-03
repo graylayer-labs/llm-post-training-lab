@@ -8,7 +8,8 @@ to it and does not repeat it.
 
 - **Shape:** a one-paragraph hook, one figure or table, the result, what it
   means, and a link to the guide. Use [`TEMPLATE.md`](TEMPLATE.md).
-- **Every number links to its source** in the guide or a results doc.
+- **Every number has a source** in the guide or a results doc: one link
+  per table or paragraph, not one per number.
 - **A negative result is a result.** Say what was expected, what happened and
   why.
 - **A draft is for the owner to edit.** No agent publishes a post.
