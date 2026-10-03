@@ -6,6 +6,40 @@ A small but complete post-training pipeline for an open LLM: LoRA supervised
 fine-tuning, DPO preference optimisation and an evaluation harness. It runs on
 one Apple-silicon laptop, so every stage can be taken apart and measured.
 
+## What we found
+
+One run per stage, one seed, `Qwen/Qwen2.5-0.5B` on an Apple M4 with 24 GB.
+The write-up is [docs/what-each-stage-changed.md](docs/what-each-stage-changed.md);
+the memory and 70B reasoning is [docs/memory-and-scale.md](docs/memory-and-scale.md).
+
+- **SFT taught the model to stop and to answer in the data's style.** On 200
+  held-out prompts the base model stops on 39.5% and SFT on 86.5%; ROUGE-L
+  against the references nearly doubled, 0.153 to 0.297. It took training
+  the two chat-token embedding rows as well as the LoRA: LoRA alone could
+  not reach the tied `<|im_end|>` row, and TRL's default loss skipped the
+  fix.
+- **DPO on 105 home-made pairs removed the loops.** Every DPO answer stops,
+  the rubric pass rate rose from 73.0% to 89.0%, and the rejected loops'
+  per-token log-prob nearly doubled in cost while the chosen answers barely
+  moved.
+- **DPO also learned "shorter".** Mean answer length fell from 111.6 to
+  51.9 tokens. Even on the 173 prompts SFT already finished, it fell from
+  69.1 to 50.4 tokens and ROUGE-L dipped (0.330 to 0.314). The pairs' rejected answers were 2.9 times longer than the
+  chosen, so the run cannot separate "do not loop" from "be short".
+- **The rubric sees stopping and looping, not correctness.** A wrong
+  12-token algebra answer passes every rule. The finance rules rest on 24
+  prompts, since only 12.9% of the de-duplicated data is finance. A model
+  judge is the stated gap; it was dropped to keep cost inside the existing
+  subscription.
+- **On a 0.5B model the memory is not the weights.** SFT peaked at 8.10 GiB
+  and DPO at 13.19 GiB; the bf16 weights are 0.92 GiB. The rest is
+  activations, the 152k-wide logits and the MPS allocator's cache, which
+  leaked until it was emptied every step.
+- **At 70B the picture inverts.** Full fine-tuning needs 1.12 TB of state,
+  sharded across every GPU and node. LoRA removes the optimiser state and
+  keeps the traffic inside a node, at about 36 GB per GPU. That section is
+  reasoning, not measurement.
+
 ## The problem
 
 Teams want to adapt open LLMs to their own domain data. They usually have no
@@ -35,8 +69,9 @@ flowchart LR
 3. **DPO** on preference pairs built from the project's own data, with the SFT
    model as reference.
 4. **Evaluation** of base, SFT and DPO on the same 200 held-out prompts:
-   perplexity, ROUGE-L and a rule-based rubric, with no model judge. See
-   [docs/eval-results.md](docs/eval-results.md).
+   perplexity, ROUGE-L and a rule-based rubric, with no model judge.
+5. **Write-up** of what each stage changed, where the memory went, what
+   broke, and how the recipe changes at 70B.
 
 ## Why this approach
 
@@ -70,7 +105,7 @@ and on the [project board](https://github.com/orgs/graylayer-labs/projects/3).
 | 1. LoRA SFT | [#1](https://github.com/graylayer-labs/llm-post-training-lab/issues/1) | Done. Clean re-run in [#12](https://github.com/graylayer-labs/llm-post-training-lab/issues/12) |
 | 2. DPO | [#2](https://github.com/graylayer-labs/llm-post-training-lab/issues/2) | Done. Pairs and DPO run at commit `0263788`; see [docs/dpo-results.md](docs/dpo-results.md) |
 | 3. Evaluation harness | [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3) | Done. Full run at commit `76c9086`; see [docs/eval-results.md](docs/eval-results.md) |
-| 4. Write-up | [#4](https://github.com/graylayer-labs/llm-post-training-lab/issues/4) | Not started |
+| 4. Write-up | [#4](https://github.com/graylayer-labs/llm-post-training-lab/issues/4) | Done. [docs/what-each-stage-changed.md](docs/what-each-stage-changed.md) and [docs/memory-and-scale.md](docs/memory-and-scale.md) |
 
 Supporting tasks, all done: run provenance
 ([#10](https://github.com/graylayer-labs/llm-post-training-lab/issues/10)),
@@ -89,65 +124,13 @@ the pairs and DPO code
 follow-along guide is
 [#13](https://github.com/graylayer-labs/llm-post-training-lab/issues/13).
 
-## Results so far
-
-Part 1, LoRA SFT: one run, one seed, on an Apple M4 laptop (MPS), at commit
-`76739e6` on a clean tree with a de-duplicated split. Full detail is in
-[docs/sft-results.md](docs/sft-results.md).
-
-| | Value |
-|---|---|
-| Trainable parameters | 8.8M of 494M (1.78%) |
-| Eval loss, 200 held-out answers | 2.169 before, 1.714 after |
-| Wall time, 1 epoch | 1,282.7 s (GPU shared with other jobs, so contended) |
-| Peak MPS memory, sampled per step (approximate) | 8.10 GB |
-| Stop token ranked first at the end of a reference answer | base 0.00, SFT 0.795 (200 rows) |
-
-- The base model almost never predicts the stop token at the end of an
-  answer: its median rank for `<|im_end|>` is 123,031 of about 152,000.
-  After SFT the median rank is 1. SFT taught the model to close its turn, but
-  only once the chat-token embedding rows were trained as well as the LoRA
-  adapters.
-- Training ran out of memory until the MPS allocator cache was emptied after
-  every step.
-- SFT answers still fall into repetition loops in the Part 1 samples. The
-  re-run has no generated answers yet; the eval harness will score them.
-
-Part 2, DPO, at commit `0263788`: one run, one seed, 105 preference pairs.
-These figures are on 10 held-out *pairs* drawn from training prompts, a
-check that DPO fits the pairs. They are not the evaluation, which is
-[#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3).
-Full detail is in [docs/dpo-results.md](docs/dpo-results.md).
-
-- DPO loss on the 10 held-out pairs fell from 0.693 to 0.058.
-- On those pairs the rejected answers' log-probability fell (summed,
-  -64.718 to -123.960) while the chosen answers' barely moved (-281.671
-  to -286.481). DPO lowered the loops rather than pushing both answers
-  down.
-
-Part 3, evaluation, at commit `76c9086`: base, SFT and DPO on the same 200
-held-out prompts, greedy, at most 384 new tokens, one seed, no model judge.
-From `outputs/eval/results.md`. Full detail and limits are in
-[docs/eval-results.md](docs/eval-results.md).
-
-| System | Rubric pass, overall (95% interval) | Stopped | Mean new tokens | Perplexity of references |
-|---|---|---|---|---|
-| base | 35.0% (70/200) [28.5, 41.5] | 39.5% | 270.0 | 8.910 |
-| SFT | 73.0% (146/200) [66.5, 79.0] | 86.5% | 111.6 | 6.245 |
-| DPO | 89.0% (178/200) [84.5, 93.0] | 100.0% | 51.9 | 6.555 |
-
-- SFT taught the model to stop and roughly doubled ROUGE-L against the
-  references (0.153 to 0.297).
-- DPO made every answer stop and cut repetition, but also halved answer
-  length. ROUGE-L stayed flat (0.297 to 0.296), and on the 173 prompts
-  where SFT already stopped, DPO's answers are shorter and slightly further
-  from the references (`outputs/eval/analysis.json`). Some of DPO's gain is
-  plausibly "shorter", not only "no loops".
-
 ## Quickstart
 
 Requires Python 3.12 and [uv](https://docs.astral.sh/uv/). Tested on Apple
 silicon (MPS). The code picks CUDA if present, but that path has not been run.
+Each stage is one YAML file under `configs/` and one `lab` command, and each
+run writes `summary.json` with its commit and library versions to its
+`output_dir`.
 
 ```bash
 uv sync --dev
@@ -156,29 +139,25 @@ uv sync --dev
 uv run lab sft --config configs/sft_smoke.yaml
 uv run lab sft --config configs/sft.yaml          # about 15 min on an M4
 
-# Compare greedy answers from base and base + adapter on held-out prompts
-uv run python tools/compare_generations.py outputs/sft -n 5
+# Part 2: preference pairs from greedy SFT answers, then DPO on them
+uv run lab pairs --config configs/pairs.yaml      # about 30 min
+uv run lab dpo --config configs/dpo.yaml          # about 20 min
 
-# Part 3: score base, SFT and DPO on the held-out prompts. A system whose
-# adapter is missing is skipped. The smoke config uses 10 prompts.
+# Part 3: score base, SFT and DPO on the same held-out prompts. A system
+# whose adapter is missing is skipped. The smoke config uses 10 prompts.
 uv run lab eval --config configs/eval_smoke.yaml
 uv run lab eval --config configs/eval.yaml
 
-# Peak memory for 8 steps: LoRA at any rank, or a full fine-tune
+# Tools: stop-token probe, memory probe, and a CPU comparison of the saved
+# eval generations
+uv run python tools/stop_token_probe.py outputs/sft
 uv run python tools/memory_lora_vs_full.py --mode lora --rank 16
-uv run python tools/memory_lora_vs_full.py --mode full
+uv run python tools/compare_systems.py outputs/eval/generations \
+    --eval-rows outputs/sft/eval_rows.json --out outputs/eval/analysis.json
 ```
 
-Part 2 builds preference pairs from greedy SFT answers, then trains DPO on
-them:
-
-```bash
-uv run lab pairs --config configs/pairs.yaml
-uv run lab dpo --config configs/dpo.yaml
-```
-
-Each run writes `summary.json`, the eval rows and the adapter to its
-`output_dir`.
+The times are from runs that shared the GPU with other jobs, so treat them
+as upper bounds.
 
 Quality gate, as run in CI:
 
@@ -213,15 +192,19 @@ outputs/, data/     run outputs and data, gitignored
 
 ## Further reading
 
-- [INTENT.md](INTENT.md): purpose, standard and how decisions get made.
-- [docs/decisions.md](docs/decisions.md): each choice, the alternatives and
-  the reason.
+- [docs/what-each-stage-changed.md](docs/what-each-stage-changed.md): the
+  write-up. Start here.
+- [docs/memory-and-scale.md](docs/memory-and-scale.md): where the memory
+  goes, measured against estimated, and the same recipe at 70B.
 - [docs/sft-results.md](docs/sft-results.md): Part 1 runs, bugs, memory and
   sample answers.
 - [docs/dpo-results.md](docs/dpo-results.md): Part 2 pairs, DPO training and
   the reference model.
 - [docs/eval-results.md](docs/eval-results.md): Part 3, what each stage
   changed on the held-out prompts.
+- [docs/decisions.md](docs/decisions.md): each choice, the alternatives and
+  the reason.
+- [INTENT.md](INTENT.md): purpose, standard and how decisions get made.
 - [CLAUDE.md](CLAUDE.md): how agents work in this repo.
 
 ## Licence
