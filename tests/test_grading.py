@@ -8,6 +8,7 @@ from post_training.eval.grading import (
     SYSTEMS,
     agreement,
     assign_labels,
+    both_pass_diffs,
     build_sheet,
     check_generations,
     cohens_kappa,
@@ -193,3 +194,42 @@ def test_validate_refuses_missing_duplicate_and_bad_grades() -> None:
         validate_grades([{**good[0], "reason": ""}, *good[1:]], [0, 3])
     with pytest.raises(ValueError, match="label"):
         validate_grades([{**good[0], "label": "D"}, *good[1:]], [0, 3])
+
+
+def test_both_pass_diffs_hand_computed() -> None:
+    # Prompt -> system -> rubric overall pass.
+    rubric = {
+        "0": {"base": False, "sft": True, "dpo": True},
+        "1": {"base": True, "sft": True, "dpo": True},
+        "2": {"base": True, "sft": False, "dpo": True},
+        "3": {"base": False, "sft": True, "dpo": True},
+    }
+    grades = {
+        0: {"base": "wrong", "sft": "wrong", "dpo": "correct"},
+        1: {"base": "correct", "sft": "correct", "dpo": "correct"},
+        2: {"base": "correct", "sft": "wrong", "dpo": "wrong"},
+        3: {"base": "wrong", "sft": "partly", "dpo": "correct"},
+    }
+    unblinded = {(i, s): g for i, row in grades.items() for s, g in row.items()}
+    out = both_pass_diffs({"g": unblinded}, rubric, resamples=200, seed=5)["g"]
+    # dpo - sft: both pass on 0, 1, 3. sft correct 1/3 (partly is not
+    # correct), dpo correct 3/3, so the difference is +2/3.
+    d = out["dpo - sft"]
+    assert d["n"] == 3 and d["indices"] == [0, 1, 3]
+    assert (d["a_correct"], d["b_correct"]) == (1, 3)
+    assert d["diff"] == pytest.approx(2 / 3)
+    same = paired_diff([False, True, False], [True, True, True], resamples=200, seed=5)
+    assert d["ci95"] == pytest.approx(same["ci95"])
+    # sft - base: both pass only on 1, where both are correct.
+    d = out["sft - base"]
+    assert d["n"] == 1 and d["indices"] == [1]
+    assert (d["a_correct"], d["b_correct"]) == (1, 1)
+    assert d["diff"] == 0 and d["ci95"] == [0, 0]
+
+
+def test_both_pass_diffs_empty_subset() -> None:
+    rubric = {"0": {"base": False, "sft": True, "dpo": False}}
+    unblinded = {(0, s): "correct" for s in SYSTEMS}
+    out = both_pass_diffs({"g": unblinded}, rubric, resamples=10, seed=0)["g"]
+    for d in out.values():
+        assert d["n"] == 0 and d["diff"] is None and d["ci95"] is None

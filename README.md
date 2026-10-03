@@ -30,10 +30,20 @@ the memory and 70B reasoning is [docs/memory-and-scale.md](docs/memory-and-scale
   69.1 to 50.4 tokens and ROUGE-L dipped (0.330 to 0.314). The pairs' rejected answers were 2.9 times longer than the
   chosen, so the run cannot separate "do not loop" from "be short".
 - **The rubric sees stopping and looping, not correctness.** A wrong
-  12-token algebra answer passes every rule. The finance rules rest on 24
-  prompts, since only 12.9% of the de-duplicated data is finance. A model
-  judge is the stated gap; it was dropped to keep cost inside the existing
-  subscription.
+  12-token algebra answer passes every rule. Of SFT's answers that pass
+  every rule, only 34.3% (Opus) and 40.0% (Sonnet) are graded correct in
+  the blind check below. The finance rules rest on 24 prompts, since only
+  12.9% of the de-duplicated data is finance.
+- **Correctness (blind, model-graded): DPO is graded correct more often,
+  over half of that gain where SFT's answer failed the rubric.** Two Claude
+  graders, Opus and Sonnet, graded 50
+  held-out prompts blind, not a person. Correct: base 10.0% / 12.0%, SFT
+  30.0% / 30.0%, DPO 44.0% / 48.0% (Opus / Sonnet); agreement 84.0%, kappa
+  0.756. DPO over SFT is +14.0 points [+0.0, +28.0] and +18.0 [+6.0,
+  +28.0]. On the 35 prompts where both pass the rubric it shrinks to +8.6
+  [−8.6, +22.9] and +11.4 [+0.0, +25.7], so DPO answering better where SFT
+  already gave a clean answer is suggested, not shown
+  ([eval-results.md](docs/eval-results.md#blind-correctness-check)).
 - **On a 0.5B model the memory is not the weights.** SFT peaked at 8.10 GiB
   and DPO at 13.19 GiB; the bf16 weights are 0.92 GiB. The rest is
   activations, the 152k-wide logits and the MPS allocator's cache, which
@@ -76,7 +86,9 @@ flowchart LR
 3. **DPO** on preference pairs built from the project's own data, with the SFT
    model as reference.
 4. **Evaluation** of base, SFT and DPO on the same 200 held-out prompts:
-   perplexity, ROUGE-L and a rule-based rubric, with no model judge.
+   perplexity, ROUGE-L and a rule-based rubric, with no paid model judge.
+   50 of the prompts are also graded blind for correctness by two model
+   graders.
 5. **Write-up** of what each stage changed, where the memory went, what
    broke, and how the recipe changes at 70B.
 
@@ -95,9 +107,10 @@ flowchart LR
   also ties the DPO signal to the same rubric the evaluation scores.
 - **A rubric, not a public benchmark.** The task has no benchmark, and loss
   metrics miss the failures that matter here. Those are answers that never
-  stop, repeat themselves or invent figures. A model judge was dropped to
-  keep cost inside the existing subscription, so judged answer quality is a
-  stated gap.
+  stop, repeat themselves or invent figures. A paid model judge was dropped
+  to keep cost inside the existing subscription. Correctness is instead
+  checked blind on 50 prompts by two Claude subagent graders; the rest of
+  answer quality is a stated gap.
 
 The full reasoning, with the alternatives for each choice, is in
 [docs/decisions.md](docs/decisions.md).
@@ -127,7 +140,10 @@ crash-safe checkpoints
 the eval harness code
 ([#23](https://github.com/graylayer-labs/llm-post-training-lab/issues/23)) and
 the pairs and DPO code
-([#26](https://github.com/graylayer-labs/llm-post-training-lab/issues/26)). The
+([#26](https://github.com/graylayer-labs/llm-post-training-lab/issues/26)) and
+the blind correctness check
+([#37](https://github.com/graylayer-labs/llm-post-training-lab/issues/37),
+[#35](https://github.com/graylayer-labs/llm-post-training-lab/issues/35)). The
 follow-along guide is
 [#13](https://github.com/graylayer-labs/llm-post-training-lab/issues/13).
 
@@ -225,7 +241,8 @@ outputs/, data/     run outputs and data, gitignored
   read-only reviewers, a guide writer, and a GitHub agent that pushes and
   merges. The process is written down in [CLAUDE.md](CLAUDE.md) and
   [.claude/](.claude/).
-- Every change under `src/` got a read-only reviewer agent's pass before
+- Since [#10](https://github.com/graylayer-labs/llm-post-training-lab/issues/10),
+  every change under `src/` got a read-only reviewer agent's pass before
   merge; docs, configs and analysis tools were read by the lead session.
   Reviews caught real bugs: a wrong train loss after resume
   ([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21)),

@@ -262,6 +262,39 @@ def summarise(
     return {"graders": graders, "agreement": pairs}
 
 
+def both_pass_diffs(
+    by_grader: Mapping[str, Mapping[tuple[int, str], str]],
+    rubric: Mapping[str, Mapping[str, bool]],
+    *,
+    resamples: int,
+    seed: int,
+) -> dict[str, Any]:
+    """Paired correct-rate differences on prompts where both systems pass.
+
+    For each grader and each pair in ``DIFFS`` (label "b - a"), keep only the
+    prompts where the rubric's overall rule passes both ``a`` and ``b``, then
+    run ``paired_diff`` on their "correct" flags. This separates "correct"
+    from "does not loop": an answer that fails the rubric is mostly a loop or
+    a truncation, so it drops out of both sides.
+    """
+    out: dict[str, Any] = {}
+    for name, unblinded in by_grader.items():
+        per: dict[str, Any] = {}
+        for label, a, b in DIFFS:
+            idx = sorted(int(i) for i, r in rubric.items() if r[a] and r[b])
+            fa = [unblinded[(i, a)] == "correct" for i in idx]
+            fb = [unblinded[(i, b)] == "correct" for i in idx]
+            d: dict[str, Any] = (
+                paired_diff(fa, fb, resamples=resamples, seed=seed)
+                if idx
+                else {"diff": None, "ci95": None, "n": 0}
+            )
+            d.update(a_correct=sum(fa), b_correct=sum(fb), indices=idx)
+            per[label] = d
+        out[name] = per
+    return out
+
+
 def _pct(r: Mapping[str, Any]) -> str:
     if not r["n"]:
         return "n/a (0/0)"

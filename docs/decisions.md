@@ -109,6 +109,25 @@ yet.
 
 ## Evaluation and preferences (planned)
 
+### Check correctness blind with two model graders
+
+*2026-10-04*
+
+- **Chose:** grade 50 seeded held-out prompts for correctness (`correct`,
+  `partly`, `wrong` against the reference), with the base, SFT and DPO
+  answers shuffled per prompt under hidden labels, by two Claude subagent
+  graders on different models (Opus and Sonnet), inside the subscription.
+  Report per-system rates, paired differences, agreement, and the paired
+  difference on prompts where the rubric passes both systems.
+- **Over:** the paid pairwise API judge (still dropped), a person grading
+  by hand, or no correctness check.
+- **Why:** the owner's choice in the lead session. The rubric passes a
+  wrong answer, so the docs could not say whether DPO answers better. The
+  both-pass subset separates "correct" from "does not loop", since a loop
+  is graded wrong. A grader that does not read every answer in full is
+  discarded and rerun; the first Sonnet attempt was. See #35, #37 and
+  [eval-results.md](eval-results.md), "Blind correctness check".
+
 ### Evaluate without a model judge
 
 *2026-10-03*

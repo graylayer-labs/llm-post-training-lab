@@ -12,7 +12,8 @@ The results docs hold the detail:
 - [sft-results.md](sft-results.md): Part 1, LoRA SFT, commit `76739e6`.
 - [dpo-results.md](dpo-results.md): Part 2, pairs and DPO, commit `0263788`.
 - [eval-results.md](eval-results.md): Part 3, the three-way eval, commit
-  `76c9086`, and the length check at `b872427`.
+  `76c9086`, the length check at `b872427`, and the blind correctness check
+  of 50 prompts, graded at `66b837b`.
 - [memory-and-scale.md](memory-and-scale.md): where the memory goes, and
   the 70B reasoning.
 - [decisions.md](decisions.md): why each choice was made.
@@ -49,8 +50,9 @@ How to read it, in short. Perplexity is of the dataset's *reference*
 answers under each model, not of the model's own answers. ROUGE-L is
 overlap with one reference. The rubric is rule-based: format, clean stop,
 repetition, and two finance-only rules on 24 rows. Nothing in the table
-scores whether an answer is correct. The full column definitions and the
-per-rule rates are in eval-results.md.
+scores whether an answer is correct; a blind, model-graded check on 50 of
+the prompts does, under "Evaluating without a benchmark" below. The full
+column definitions and the per-rule rates are in eval-results.md.
 
 ## What SFT changed
 
@@ -173,10 +175,28 @@ the task: asked to "name and describe four types of renewable energy", SFT
 named and described them in 87 tokens, DPO named them in 17 and stopped.
 The rubric counts that as a DPO fix (`analysis.json`, `examples`, index 2).
 
+**More answers graded correct, mostly where SFT looped.** On 50 prompts
+graded blind by two model graders, DPO's correct rate is 44.0% (Opus) and
+48.0% (Sonnet) against SFT's 30.0% for both; paired, +14.0 points [+0.0,
++28.0] and +18.0 [+6.0, +28.0]. On the 35 prompts where the rubric passes
+both SFT and DPO, so neither answer fails to stop or trips the repetition
+rule, the gap shrinks to
++8.6 [−8.6, +22.9] and +11.4 [+0.0, +25.7]: still DPO's way for both
+graders, but both intervals reach zero
+([eval-results.md](eval-results.md), "Blind correctness check";
+`outputs/grading/v1/results.json`, unblinded at `66b837b`, and
+`subset.json`, computed at branch commit `b3b5567` before merge).
+
 **Reading.** DPO did what the pairs mostly taught. It stops every time and
 loops far less, and that is why the rubric rate rose 16 points. It also
 learned "be short", and this run cannot separate the two. Doing so would
-need pairs whose chosen and rejected answers have similar lengths.
+need pairs whose chosen and rejected answers have similar lengths. The
+blind check adds that DPO's answers are graded correct more often, and
+more than half of that gain (4 of 7 extra correct answers for Opus, 5 of
+9 for Sonnet) sits on the 15 prompts where SFT's answer failed the rubric,
+mostly loops. Whether DPO answers
+better where SFT already gave a clean answer is not shown: the estimate is
+positive, but 35 prompts cannot separate it from zero.
 
 ## What broke along the way
 
@@ -284,15 +304,46 @@ rejected answers, so the training signal and the evaluation agree on what
   [decisions.md](decisions.md), "Class finance rows by the prompt"). That
   is why it was logged but never used to reject a DPO sample.
 
-**Why a model judge is the next step.** Every gap above is a judgement
+**Why a model judge was the next step.** Every gap above is a judgement
 about meaning: is the answer right, does it do all of what was asked, is a
 shorter answer a better one. A pairwise judge with position swap was
 designed for this (decisions.md, "Score answers with a rubric and a
 pairwise judge") and dropped by the owner to keep cost inside the existing
 subscription: about 1,200 API calls, $1 to $5 (decisions.md, "Evaluate
-without a model judge"). Its absence is the largest stated gap in this
-write-up. Without it, the claim is "DPO stops and loops less", not "DPO
-answers better".
+without a model judge"). Without it, the claim was "DPO stops and loops
+less", not "DPO answers better".
+
+**The blind correctness check.** To close part of that gap inside the
+subscription, 50 of the 200 prompts were graded blind for correctness by
+two Claude subagent graders on different models, Opus and Sonnet
+([#35](https://github.com/graylayer-labs/llm-post-training-lab/issues/35);
+[eval-results.md](eval-results.md), "Blind correctness check";
+[decisions.md](decisions.md), "Check correctness blind with two model
+graders"). The grading was by models, not a person. Each prompt showed the
+reference and the three answers under labels shuffled per prompt; the
+key was kept apart. From `outputs/grading/v1/results.json`, unblinded at
+`66b837b`:
+
+| System | Correct, Opus | Correct, Sonnet |
+|---|---|---|
+| base | 10.0% (5/50) [2.0, 20.0] | 12.0% (6/50) [4.0, 22.0] |
+| sft | 30.0% (15/50) [18.0, 42.0] | 30.0% (15/50) [18.0, 42.0] |
+| dpo | 44.0% (22/50) [30.0, 58.0] | 48.0% (24/50) [34.0, 62.0] |
+
+The graders agree on 84.0% of the 150 answers, Cohen's kappa 0.756.
+Passing the rubric is not being correct: of SFT's answers that pass every
+rule, 34.3% (12/35, Opus) and 40.0% (14/35, Sonnet) are graded correct.
+DPO's paired gain over SFT is +14.0 points [+0.0, +28.0] (Opus) and +18.0
+[+6.0, +28.0] (Sonnet), but on the 35 prompts where both pass the rubric
+it is +8.6 [−8.6, +22.9] and +11.4 [+0.0, +25.7] (`subset.json`, computed
+at branch commit `b3b5567` before merge). So the claim is now: DPO stops
+and loops less, and its answers are graded correct more often, with more
+than half of that gain on prompts where SFT's answer failed the rubric;
+that it answers better where SFT already gave a clean
+answer is suggested but not shown. A first Sonnet grading was discarded
+because the grader judged mostly from the first ~300 characters and the
+length, partly by script; the kept grades are a rerun that read every
+answer.
 
 ## At much larger scale
 
@@ -338,8 +389,12 @@ not measurement ([memory-and-scale.md](memory-and-scale.md), Section 4).
   "Class finance rows by the prompt"). finance-alpaca's finance rows were
   heavily duplicated, so the model was mostly trained and scored on general
   Alpaca instructions, and the finance rules rest on 24 eval rows.
-- **No model judge.** Nothing scores correctness, completeness or
-  helpfulness. See "Evaluating without a benchmark".
+- **Correctness on 50 prompts, graded by models.** Only 50 of the 200
+  prompts are graded for correctness, by two Claude graders, not a person.
+  They may share biases, and though blind to the system they can see
+  loops and length. Nothing scores completeness or helpfulness beyond
+  that. See "Evaluating without a benchmark" and
+  [eval-results.md](eval-results.md), "Limits of the check".
 - **Batch-size-dependent decoding.** The answers are not bit-identical to
   one-at-a-time decoding; every system was decoded the same way.
 - **Contended timings.** Wall times were measured while another project's
