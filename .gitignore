@@ -10,5 +10,6 @@ build/
 dist/
 /data
 /outputs
+outputs/
 .claude/worktrees/
 .env
