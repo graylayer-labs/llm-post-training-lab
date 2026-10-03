@@ -1,0 +1,26 @@
+# Stage 3: score base, SFT and DPO on the same held-out prompts.
+model_name: Qwen/Qwen2.5-0.5B
+output_dir: outputs/eval
+
+# The exact held-out rows the SFT run saved. Read from the file, not rebuilt
+# from the SFT config, so a later change to the split code or the dataset on
+# the Hub cannot change the prompt set. The prompt-set hash is in results.json.
+eval_rows: outputs/sft/eval_rows.json
+limit: null       # all 200
+
+systems:          # a system whose adapter is missing is reported as skipped
+  - {name: base, adapter: null}
+  - {name: sft, adapter: outputs/sft/adapter}
+  - {name: dpo, adapter: outputs/dpo/adapter}
+
+generation:       # greedy, identical for every system
+  max_new_tokens: 384
+  batch_size: 1   # batched bf16 on MPS changes greedy outputs
+  seed: 0
+
+perplexity:
+  max_length: 512 # same truncation as SFT training
+
+bootstrap:        # 95% percentile interval on rubric pass rates
+  resamples: 1000
+  seed: 0
