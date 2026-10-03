@@ -205,6 +205,27 @@ judge was dropped on 2026-10-03. The rubric part stands.
   unmerged SFT model by rounding. The trained policy is
   merge(base, SFT adapter) plus the DPO LoRA, and must be loaded that way.
 
+### Draw rejected answers from greedy decoding
+
+*2026-10-03*, owner decision
+
+- **Chose:** the rejected candidate for each prompt is the SFT model's
+  greedy answer (`decoding: greedy`, one answer per prompt, batch size 16,
+  384 tokens). The rejection rule is unchanged: format or repetition.
+- **Over:** temperature-1.0 samples, and skipping DPO.
+- **Why:** with the post-dedup SFT adapter (`outputs/sft`), 0 of 96
+  temperature-1.0 samples were rejected (9% and 2% ambiguous in two
+  scratch runs at batch 8 and 16). SFT's remaining failure is greedy
+  looping: 21 of 96 greedy answers on the first 96 training prompts fail
+  `repetition`, and 14 of them never stop. The eval harness also decodes
+  greedily, so DPO targets the failure the eval measures. Greedy bf16
+  output depends on batch size, so batch size is part of the samples
+  cache key.
+- **Figures:** measured but not saved, from the lead's and the
+  implementer's scratch runs on 2026-10-03. The full run's `manifest.json`
+  will hold the quotable ones (yield, rejected share by rule, share not
+  stopped).
+
 ### Treat held-out pair accuracy as a fit check, not a result
 
 *2026-10-03*
