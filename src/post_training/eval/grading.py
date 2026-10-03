@@ -10,13 +10,14 @@ bootstrap intervals and inter-grader agreement.
 
 from __future__ import annotations
 
+import json
 import random
 from collections.abc import Mapping, Sequence
 from itertools import combinations
 from typing import Any
 
-from post_training.data.finance import Row
-from post_training.eval.metrics import bootstrap_ci
+from post_training.data.finance import Row, prompt_key
+from post_training.eval.metrics import bootstrap_ci, percentile
 from post_training.eval.rubric import score
 
 SYSTEMS = ("base", "sft", "dpo")
@@ -99,6 +100,31 @@ def rubric_overall(
     }
 
 
+def check_generations(gens: Sequence[Gen], rows: Sequence[Row], name: str) -> None:
+    """Refuse unless ``gens`` answers ``rows`` one for one, in order."""
+    if len(gens) != len(rows):
+        raise ValueError(f"{name}: {len(gens)} generations for {len(rows)} rows")
+    for i, (g, r) in enumerate(zip(gens, rows, strict=True)):
+        if g.get("index") != i or g.get("prompt_key") != prompt_key(r):
+            raise ValueError(f"{name}: row {i} does not match the eval rows")
+
+
+def parse_grade_lines(text: str, name: str) -> list[Grade]:
+    """Grade records from JSONL text; errors name the file and line number."""
+    out: list[Grade] = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"{name} line {n}: not JSON ({e.msg})") from e
+        if not isinstance(rec, dict):
+            raise ValueError(f"{name} line {n}: expected a JSON object")
+        out.append(rec)
+    return out
+
+
 def validate_grades(grades: Sequence[Grade], indices: Sequence[int]) -> None:
     """Refuse unless every prompt x label is graded exactly once, validly."""
     expected = {(i, lab) for i in indices for lab in LABELS}
@@ -159,6 +185,28 @@ def _rate(flags: Sequence[bool], resamples: int, seed: int) -> dict[str, Any]:
     }
 
 
+def paired_diff(
+    a: Sequence[bool], b: Sequence[bool], *, resamples: int, seed: int
+) -> dict[str, Any]:
+    """Paired bootstrap of mean(b) - mean(a): resample prompts, keep pairs."""
+    n = len(a)
+    if n != len(b) or not n:
+        raise ValueError("need two equal, non-empty lists")
+    rng = random.Random(seed)
+    diffs = []
+    for _ in range(resamples):
+        idx = rng.choices(range(n), k=n)
+        diffs.append(sum(b[i] for i in idx) / n - sum(a[i] for i in idx) / n)
+    return {
+        "diff": sum(b) / n - sum(a) / n,
+        "ci95": [percentile(diffs, 2.5), percentile(diffs, 97.5)],
+        "n": n,
+    }
+
+
+DIFFS = (("sft - base", "base", "sft"), ("dpo - sft", "sft", "dpo"))
+
+
 def summarise(
     by_grader: Mapping[str, Mapping[tuple[int, str], str]],
     rubric: Mapping[str, Mapping[str, bool]],
@@ -185,7 +233,22 @@ def summarise(
                 ),
                 "correct_by_rubric": split,
             }
-        graders[name] = systems
+        flags = {
+            s: [
+                g == "correct"
+                for _, g in sorted(
+                    (i, g) for (i, sys), g in unblinded.items() if sys == s
+                )
+            ]
+            for s in SYSTEMS
+        }
+        graders[name] = {
+            "systems": systems,
+            "paired_correct_diff": {
+                label: paired_diff(flags[a], flags[b], resamples=resamples, seed=seed)
+                for label, a, b in DIFFS
+            },
+        }
     pairs: dict[str, Any] = {}
     for g1, g2 in combinations(by_grader, 2):
         keys = sorted(by_grader[g1])
@@ -218,10 +281,12 @@ def render_markdown(results: Mapping[str, Any]) -> str:
         f"{results['n_prompts']} prompts, graders: {', '.join(s['graders'])}. "
         f"Commit `{(prov['commit'] or 'none')[:7]}`, scratch {prov['scratch']}. "
         f"Intervals are 95% percentile bootstrap, {results['resamples']} "
-        f"resamples, seed {results['seed']}.",
+        f"resamples, bootstrap seed {results['bootstrap_seed']} "
+        f"(sheet seed {results['sheet_seed']}).",
         "",
     ]
-    for name, systems in s["graders"].items():
+    for name, g in s["graders"].items():
+        systems = g["systems"]
         out += [
             f"## Grader {name}",
             "",
@@ -235,7 +300,25 @@ def render_markdown(results: Mapping[str, Any]) -> str:
                 f"| {sys} | {_pct(v['correct'])} | {_pct(v['correct_or_partly'])} | "
                 f"{_pct(by['rubric_pass'])} | {_pct(by['rubric_fail'])} |"
             )
+        out += [
+            "",
+            "Paired difference in correct rate (same prompts, resampled "
+            "together), 95% interval:",
+            "",
+        ]
+        for label, d in g["paired_correct_diff"].items():
+            lo, hi = d["ci95"]
+            out.append(
+                f"- {label}: {100 * d['diff']:+.1f} points "
+                f"[{100 * lo:+.1f}, {100 * hi:+.1f}], n = {d['n']}"
+            )
         out.append("")
+    out += [
+        "Overlapping per-system intervals do not mean there is no difference: "
+        "the systems answer the same prompts, so the paired intervals above "
+        "are the tighter comparison.",
+        "",
+    ]
     if s["agreement"]:
         out += [
             "## Agreement between graders",

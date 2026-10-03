@@ -1,5 +1,7 @@
 import json
+import random
 
+import numpy as np
 import pytest
 
 from post_training.eval.grading import (
@@ -7,7 +9,10 @@ from post_training.eval.grading import (
     agreement,
     assign_labels,
     build_sheet,
+    check_generations,
     cohens_kappa,
+    paired_diff,
+    parse_grade_lines,
     pick_indices,
     unblind,
     validate_grades,
@@ -75,6 +80,52 @@ def test_sheet_leaks_nothing_about_the_system() -> None:
     for line in sheet:
         for label, system in key[str(line["index"])].items():
             assert line["answers"][label] == f"{system} answer {line['index']}"
+
+
+def test_each_system_is_balanced_across_labels() -> None:
+    _, key = build_sheet(_rows(200), _gens(200), pick_indices(200, 50, 0), seed=0)
+    for label in "ABC":
+        for system in SYSTEMS:
+            assert sum(m[label] == system for m in key.values()) >= 10
+
+
+def test_check_generations_refuses_misordered_rows() -> None:
+    rows = _rows(4)
+    good = _gens(4)["sft"]
+    check_generations(good, rows, "sft")
+    swapped = [good[1], good[0], *good[2:]]
+    with pytest.raises(ValueError, match="row 0"):
+        check_generations(swapped, rows, "sft")
+    with pytest.raises(ValueError, match="3 generations"):
+        check_generations(good[:3], rows, "sft")
+    wrong_key = [{**good[0], "prompt_key": "other"}, *good[1:]]
+    with pytest.raises(ValueError, match="row 0"):
+        check_generations(wrong_key, rows, "sft")
+
+
+def test_paired_diff_ci_matches_independent_percentiles() -> None:
+    a = [True, False, False, True, False, False]
+    b = [True, True, False, True, True, False]
+    n = len(a)
+    rng = random.Random(5)
+    diffs = []
+    for _ in range(200):
+        idx = rng.choices(range(n), k=n)
+        diffs.append(sum(b[i] for i in idx) / n - sum(a[i] for i in idx) / n)
+    out = paired_diff(a, b, resamples=200, seed=5)
+    assert out["diff"] == pytest.approx(2 / 6)
+    assert out["ci95"] == pytest.approx(
+        [float(np.percentile(diffs, 2.5)), float(np.percentile(diffs, 97.5))]
+    )
+
+
+def test_parse_grade_lines_reports_line_numbers() -> None:
+    ok = '{"index": 0, "label": "A", "grade": "wrong", "reason": "r"}'
+    assert len(parse_grade_lines(f"{ok}\n\n{ok}\n", "g.jsonl")) == 2
+    with pytest.raises(ValueError, match="g.jsonl line 2"):
+        parse_grade_lines(f"{ok}\nnot json\n", "g.jsonl")
+    with pytest.raises(ValueError, match="line 2"):
+        parse_grade_lines(f"{ok}\n[1, 2]\n", "g.jsonl")
 
 
 def test_sheet_is_deterministic() -> None:
