@@ -8,7 +8,7 @@ first use is to test whether DPO's gains come from shorter answers: rejected
 pair answers were about 2.9 times longer than chosen (docs/dpo-results.md).
 
     uv run python tools/compare_systems.py <generations dir> \\
-        --eval-rows outputs/sft/eval_rows.json --out <file>
+        --eval-rows outputs/sft/eval_rows.json --out <file> [--show 2 12]
 
 ``<generations dir>`` is the harness's ``generations/`` directory, given as an
 argument so the same tool works on any eval run.
@@ -20,6 +20,9 @@ For each ordered pair ``a->b`` the output has:
   each. This removes never-stopping loops from both sides.
 - ``b_on_prompts_where_a_stopped``: system b scored on only the prompts where
   a stopped cleanly, to set beside a's ``rubric_overall_when_stopped``.
+- ``a_did_not_stop``: the prompts where a never stopped cleanly, both systems.
+- ``b_short``: the prompts where b's answer is under ``--short-below`` new
+  tokens, both systems.
 - ``fixed`` / ``regressed``: prompts where a fails the rubric overall and b
   passes, and the reverse.
 - ``b_shorter``: prompts where b used fewer new tokens than a.
@@ -104,6 +107,10 @@ def _mean(xs: Sequence[float]) -> float | None:
     return statistics.fmean(xs) if xs else None
 
 
+def _failed(res: RubricResult) -> list[str]:
+    return [f"{r.name}: {r.reason}" for r in res.rules if r.applies and not r.passed]
+
+
 def _clean(g: Gen, max_new_tokens: int) -> bool:
     return bool(g["stopped"]) and g["new_tokens"] < max_new_tokens
 
@@ -116,8 +123,13 @@ def analyse(
     short_below: int,
     n_examples: int,
     pairs: Sequence[tuple[str, str]],
+    example_indices: Sequence[int] = (),
 ) -> dict[str, Any]:
-    """Per-system statistics and pairwise comparisons; see the module doc."""
+    """Per-system statistics and pairwise comparisons; see the module doc.
+
+    ``example_indices`` names rows to save in full for every system, with
+    ROUGE-L and the reason for each failed rule.
+    """
     scorer = rouge_scorer.RougeScorer([ROUGE_TYPE], use_stemmer=ROUGE_USE_STEMMER)
     rouge: dict[str, list[float]] = {}
     rubric: dict[str, list[RubricResult]] = {}
@@ -172,7 +184,7 @@ def analyse(
                     "text": gs[i]["text"],
                     "new_tokens": gs[i]["new_tokens"],
                     "rouge_l": rouge[name][i],
-                    "rubric_failed": list(rubric[name][i].failed),
+                    "rubric_failed": _failed(rubric[name][i]),
                     "reference": rows[i]["output"],
                 }
                 for i in short[:n_examples]
@@ -191,20 +203,30 @@ def analyse(
         fixed = [i for i in range(len(rows)) if not oa[i] and ob[i]]
         regressed = [i for i in range(len(rows)) if oa[i] and not ob[i]]
         ratios = [gb[i]["new_tokens"] / ga[i]["new_tokens"] for i in both]
+
+        def subset(idx: list[int], a: str = a, b: str = b) -> dict[str, Any]:
+            return {
+                "n": len(idx),
+                "mean_new_tokens": {
+                    s: _mean([gens[s][i]["new_tokens"] for i in idx]) for s in (a, b)
+                },
+                "rouge_l": {s: _mean([rouge[s][i] for i in idx]) for s in (a, b)},
+                "rubric_overall": {
+                    s: _kn([rubric[s][i].overall for i in idx]) for s in (a, b)
+                },
+            }
+
         out_pairs[f"{a}->{b}"] = {
             "both_stopped": {
-                "n": len(both),
-                "mean_new_tokens": {
-                    s: _mean([gens[s][i]["new_tokens"] for i in both]) for s in (a, b)
-                },
+                **subset(both),
                 "median_length_ratio_b_over_a": (
                     statistics.median(ratios) if ratios else None
                 ),
-                "rouge_l": {s: _mean([rouge[s][i] for i in both]) for s in (a, b)},
-                "rubric_overall": {
-                    s: _kn([rubric[s][i].overall for i in both]) for s in (a, b)
-                },
             },
+            "a_did_not_stop": subset([i for i in range(len(rows)) if not ca[i]]),
+            "b_short": subset(
+                [i for i in range(len(rows)) if gb[i]["new_tokens"] < short_below]
+            ),
             "b_on_prompts_where_a_stopped": {
                 "n": len(a_stopped),
                 "rubric_overall": _kn([ob[i] for i in a_stopped]),
@@ -223,7 +245,26 @@ def analyse(
                 },
             },
         }
-    return {"systems": systems, "pairs": out_pairs}
+    examples = [
+        {
+            "index": i,
+            "prompt": rows[i]["instruction"],
+            "input": rows[i].get("input") or "",
+            "reference": rows[i]["output"],
+            "systems": {
+                name: {
+                    "text": gs[i]["text"],
+                    "new_tokens": gs[i]["new_tokens"],
+                    "stopped": gs[i]["stopped"],
+                    "rouge_l": rouge[name][i],
+                    "rubric_failed": _failed(rubric[name][i]),
+                }
+                for name, gs in gens.items()
+            },
+        }
+        for i in example_indices
+    ]
+    return {"systems": systems, "pairs": out_pairs, "examples": examples}
 
 
 def _sha256(path: Path) -> str:
@@ -237,7 +278,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     p.add_argument("--systems", nargs="+", default=["base", "sft", "dpo"])
     p.add_argument("--max-new-tokens", type=int, default=384)
     p.add_argument("--short-below", type=int, default=20)
-    p.add_argument("--examples", type=int, default=5)
+    p.add_argument("--examples", type=int, default=5, help="short answers to save")
+    p.add_argument(
+        "--show", type=int, nargs="*", default=[], help="row indices to save in full"
+    )
     p.add_argument("--out", type=Path, required=True)
     args = p.parse_args(argv)
 
@@ -251,6 +295,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         max_new_tokens=args.max_new_tokens,
         short_below=args.short_below,
         n_examples=args.examples,
+        example_indices=args.show,
         pairs=pairs,
     )
     out = {

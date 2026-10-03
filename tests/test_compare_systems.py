@@ -119,6 +119,43 @@ def test_analyse_counts_and_both_stopped_subset() -> None:
     assert pair["b_on_prompts_where_a_stopped"]["rubric_overall"]["k"] == 2
 
 
+def test_analyse_subsets_where_a_did_not_stop_and_b_is_short() -> None:
+    out = cs.analyse(
+        ROWS, GENS, max_new_tokens=384, short_below=20, n_examples=0, pairs=[("a", "b")]
+    )
+    pair = out["pairs"]["a->b"]
+    nostop = pair["a_did_not_stop"]
+    assert nostop["n"] == 2  # rows 1 and 3
+    assert nostop["mean_new_tokens"] == {"a": 384.0, "b": 9.0}
+    assert nostop["rouge_l"]["b"] == pytest.approx(1.0)  # both exact
+    assert nostop["rubric_overall"]["b"]["k"] == 2
+    short = pair["b_short"]
+    assert short["n"] == 3  # rows 0, 1, 3 have b under 20 tokens
+    assert short["mean_new_tokens"]["a"] == pytest.approx((30 + 384 + 384) / 3)
+    assert short["rubric_overall"]["a"]["k"] == 1  # only row 0
+
+
+def test_analyse_examples_by_index_carry_rule_reasons() -> None:
+    out = cs.analyse(
+        ROWS,
+        GENS,
+        max_new_tokens=384,
+        short_below=20,
+        n_examples=0,
+        pairs=[],
+        example_indices=[1],
+    )
+    (ex,) = out["examples"]
+    assert ex["index"] == 1
+    assert ex["reference"] == "An apple is a fruit."
+    a = ex["systems"]["a"]
+    assert a["new_tokens"] == 384 and a["stopped"] is False
+    assert any(f.startswith("repetition: ") for f in a["rubric_failed"])
+    assert any(f.startswith("clean_stop: ") for f in a["rubric_failed"])
+    assert ex["systems"]["b"]["rubric_failed"] == []
+    assert ex["systems"]["b"]["rouge_l"] == pytest.approx(1.0)
+
+
 def test_analyse_short_examples_and_rouge_per_row() -> None:
     out = cs.analyse(
         ROWS, GENS, max_new_tokens=384, short_below=20, n_examples=2, pairs=[]
