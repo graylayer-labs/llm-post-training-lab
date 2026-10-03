@@ -37,7 +37,8 @@ the memory and 70B reasoning is [docs/memory-and-scale.md](docs/memory-and-scale
 - **On a 0.5B model the memory is not the weights.** SFT peaked at 8.10 GiB
   and DPO at 13.19 GiB; the bf16 weights are 0.92 GiB. The rest is
   activations, the 152k-wide logits and the MPS allocator's cache, which
-  leaked until it was emptied every step.
+  retained blocks across changing sequence lengths and grew until it was
+  emptied every step.
 - **At 70B the picture inverts.** Full fine-tuning needs 1.12 TB of state,
   sharded across every GPU and node. LoRA removes the optimiser state and
   keeps the traffic inside a node, at about 36 GB per GPU. That section is

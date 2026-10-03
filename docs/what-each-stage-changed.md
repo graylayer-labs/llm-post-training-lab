@@ -184,13 +184,13 @@ Each item links the section that holds the detail.
   `chunked_nll` loss silently skipped the fix. Found from 0 of 5 samples
   stopping; fixed by training the two token rows and using `nll`.
   [sft-results.md, "The stop-token bug"](sft-results.md#the-stop-token-bug).
-- **The MPS allocator leak and out-of-memory.** The `nll` loss holds the full
+- **MPS cache retention and out-of-memory.** The `nll` loss holds the full
   batch × sequence × 152k logits, and each batch has a new sequence length,
   so the MPS caching allocator kept old blocks. At micro-batch 2 the run
   died with 2.84 GiB of tensors and 27.34 GiB held by the driver, against a
   30.19 GiB limit. Halving the batch did not help. Fixed by
   `torch.mps.empty_cache()` after every optimiser step.
-  [sft-results.md, "Out of memory, then a cache leak"](sft-results.md#out-of-memory-then-a-cache-leak).
+  [sft-results.md, "Out of memory, then cache retention"](sft-results.md#out-of-memory-then-cache-retention).
 - **Duplicated prompts and train/eval overlap.** finance-alpaca repeats
   prompts: 7,587 of the 55,835 rows that pass the length filter are
   duplicates, and 4 of the Part 1 run's 200 held-out prompts were also

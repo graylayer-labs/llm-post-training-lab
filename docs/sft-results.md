@@ -125,7 +125,7 @@ generated answers that stop. The eval harness
 ([#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3))
 will measure stopping on generated answers.
 
-## Out of memory, then a cache leak
+## Out of memory, then cache retention
 
 The plain `nll` loss holds the full batch × sequence × 152k-vocab logits. Two
 attempts at the v2 setup crashed before the cache fix. Logs are in
