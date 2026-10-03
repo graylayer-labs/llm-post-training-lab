@@ -184,8 +184,8 @@ rule, the gap shrinks to
 +8.6 [−8.6, +22.9] and +11.4 [+0.0, +25.7]: still DPO's way for both
 graders, but both intervals reach zero
 ([eval-results.md](eval-results.md), "Blind correctness check";
-`outputs/grading/v1/results.json`, unblinded at `66b837b`, and
-`subset.json`, computed at branch commit `b3b5567` before merge).
+`outputs/grading/v1/results.json` and `subset.json`, both computed at
+`9bc7756` on `main`; attached to the [v0.1.0 release](https://github.com/graylayer-labs/llm-post-training-lab/releases/tag/v0.1.0)).
 
 **Reading.** DPO did what the pairs mostly taught. It stops every time and
 loops far less, and that is why the rubric rate rose 16 points. It also
@@ -336,7 +336,7 @@ rule, 34.3% (12/35, Opus) and 40.0% (14/35, Sonnet) are graded correct.
 DPO's paired gain over SFT is +14.0 points [+0.0, +28.0] (Opus) and +18.0
 [+6.0, +28.0] (Sonnet), but on the 35 prompts where both pass the rubric
 it is +8.6 [−8.6, +22.9] and +11.4 [+0.0, +25.7] (`subset.json`, computed
-at branch commit `b3b5567` before merge). So the claim is now: DPO stops
+at `9bc7756` on `main`). So the claim is now: DPO stops
 and loops less, and its answers are graded correct more often, with more
 than half of that gain on prompts where SFT's answer failed the rubric;
 that it answers better where SFT already gave a clean

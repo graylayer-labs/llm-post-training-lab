@@ -102,8 +102,7 @@ unblinded at `66b837b`).
 - **Correct, or just not looping?** A loop is graded wrong, so the same
   difference was taken on only the 35 prompts where the rubric passes both
   SFT and DPO: +8.6 [−8.6, +22.9] and +11.4 [+0.0, +25.7]
-  (`outputs/grading/v1/subset.json`, computed at branch commit `b3b5567`
-  before merge). Still DPO's way, but both intervals reach zero. Over half
+  (`outputs/grading/v1/subset.json`, computed at `9bc7756` on `main`). Still DPO's way, but both intervals reach zero. Over half
   of DPO's extra correct answers are on the 15 prompts where SFT's answer
   failed the rubric.
 

@@ -361,8 +361,9 @@ model graders. **The grading was done by models, not by a person.**
 - **Unblinding.** `tools/blind_grading.py unblind` validates every grade
   (each prompt and label exactly once, a known grade, a non-empty reason),
   maps labels back to systems with the key and writes `results.json` and
-  `results.md`. It ran at commit `66b837b` on `main`, clean tree
-  (`results.json`, `provenance`). Intervals are 95% percentile bootstrap,
+  `results.md`. It first ran at commit `66b837b` on `main` and was re-run
+  at `9bc7756` on `main`, clean tree, with identical results apart from the
+  provenance (`results.json`, `provenance`). Intervals are 95% percentile bootstrap,
   1,000 resamples, bootstrap seed 0. The paired differences resample
   prompts and keep each prompt's three answers together.
 
@@ -428,9 +429,10 @@ where the rubric's overall rule passes *both* systems, so a looping or
 truncated answer is out on both sides.
 
 From `outputs/grading/v1/subset.json`, written by
-`tools/blind_grading.py subset`. **It was computed at branch commit
-`b3b5567` on `docs/35-grading-results`, clean tree (`provenance` in the
-file), before merge;** it is to be re-run from `main` after merge. Same
+`tools/blind_grading.py subset`. It was first computed at branch commit
+`b3b5567` before merge, then re-run at `9bc7756` on `main`, clean tree,
+with identical results apart from the provenance (`provenance` in the
+file). Same
 bootstrap settings as above.
 
 | Both pass the rubric | n | Opus: correct, a vs b | Opus: b − a | Sonnet: correct, a vs b | Sonnet: b − a |

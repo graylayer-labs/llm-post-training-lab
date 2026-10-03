@@ -11,6 +11,10 @@ one Apple-silicon laptop, so every stage can be taken apart and measured.
 One run per stage, one seed, `Qwen/Qwen2.5-0.5B` on an Apple M4 with 24 GB.
 The write-up is [docs/what-each-stage-changed.md](docs/what-each-stage-changed.md);
 the memory and 70B reasoning is [docs/memory-and-scale.md](docs/memory-and-scale.md).
+The run files behind every number (summaries, manifests, eval and grading
+results, each with its commit) are attached to the
+[v0.1.0 release](https://github.com/graylayer-labs/llm-post-training-lab/releases/tag/v0.1.0);
+`outputs/` itself is gitignored.
 
 - **SFT taught the model to stop, and moved its answers closer to the
   reference answers (ROUGE-L 0.153 → 0.297).** On 200 held-out prompts the

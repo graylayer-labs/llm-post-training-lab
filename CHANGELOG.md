@@ -9,6 +9,10 @@ each links to the issue that holds the detail.
 ### 2026-10-04
 
 **Added**
+- Release v0.1.0 carries the small run files every quoted number comes
+  from: summaries, the pairs manifest, eval and grading results. No weights,
+  adapters or data. The machine hostname is redacted in the attached copies.
+  ([#36](https://github.com/graylayer-labs/llm-post-training-lab/issues/36))
 - `tools/blind_grading.py` builds a blind grading sheet (answers shuffled
   per prompt under hidden labels, key kept apart) and unblinds the grades
   into per-system rates, paired differences and inter-grader agreement
