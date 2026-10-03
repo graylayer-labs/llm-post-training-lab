@@ -34,6 +34,14 @@ each links to the issue that holds the detail.
   finance-alpaca loader.
 
 **Result**
+- DPO on top of SFT at commit `0263788`: 105 pairs from 500 greedy SFT
+  answers on training prompts, 104 of them rejected for repetition loops.
+  On 10 held-out pairs, a fit check and not the eval, DPO loss fell from
+  0.693 to 0.058. On those pairs the rejected answers' log-probability
+  fell while the chosen answers' barely moved. The reference is the merged SFT
+  model, because TRL's own reference copy skips the trained chat-token
+  rows. Peak memory 13.19 GiB. One seed.
+  ([results](docs/dpo-results.md), [#2](https://github.com/graylayer-labs/llm-post-training-lab/issues/2))
 - Clean SFT re-run at commit `76739e6` on the de-duplicated split: eval loss
   fell from 2.169 to 1.714 on 200 held-out answers. The saved probe puts
   `<|im_end|>` first in 0.795 of 200 reference positions for SFT, against
