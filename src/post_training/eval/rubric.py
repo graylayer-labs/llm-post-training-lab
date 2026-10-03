@@ -48,11 +48,18 @@ Row = dict[str, Any]
 # Any special token in Qwen's <|...|> form, e.g. <|im_start|>, <|im_end|>,
 # <|endoftext|>. The decoded answer should never contain one.
 _CHAT_MARKER = re.compile(r"<\|[a-z_]+\|>")
-# A line that opens a new turn: "user:", "Assistant:", "Human:", "system:", or
-# an Alpaca-style "### Instruction" header. Only at the start of a line, so a
+# A line that opens a new turn: "user:", "Assistant:", "Human:", "system:",
+# "Question:", "Instruction:", "Response:", an Alpaca-style "### Instruction"
+# header, or a line holding only a role name. Only at the start of a line, so a
 # role word inside a sentence is fine.
 _ROLE_LINE = re.compile(
-    r"^\s*(?:(?:user|assistant|system|human)\s*:|###\s*(?:instruction|input|response))",
+    r"^[ \t]*(?:"
+    r"(?:user|assistant|system|human|question|instruction|response)[ \t]*:"
+    r"|###[ \t]*(?:instruction|input|response)"
+    # A bare role line is what a Qwen turn leaves when decoded with
+    # skip_special_tokens: "<|im_start|>user" becomes "user".
+    r"|(?:user|assistant|system)[ \t]*$"
+    r")",
     re.IGNORECASE | re.MULTILINE,
 )
 

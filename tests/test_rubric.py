@@ -70,6 +70,13 @@ def test_format_fails_leaked_chat_marker(answer: str) -> None:
         "Human: tell me more",
         "A bond pays interest.\nSYSTEM: be concise",
         "A bond pays interest.\n### Instruction:\nWhat is a stock?",
+        "A bond pays interest.\nQuestion: what about stocks?",
+        "Instruction: explain bonds.",
+        "A bond pays interest.\n  Response: Stocks are shares.",
+        # A Qwen turn decoded with skip_special_tokens leaves the bare role.
+        "A bond pays interest.\nuser\nAnd stocks?",
+        "A bond pays interest.\n  Assistant  \nStocks are shares.",
+        "A bond pays interest.\nsystem\nYou are concise.",
     ],
 )
 def test_format_fails_role_line(answer: str) -> None:
@@ -80,6 +87,11 @@ def test_format_fails_role_line(answer: str) -> None:
 
 def test_format_allows_role_word_mid_line() -> None:
     r = check_format("The user: the person who holds the account, pays the fee.")
+    assert r.passed
+
+
+def test_format_allows_role_word_starting_a_longer_line() -> None:
+    r = check_format("A fee is charged.\nUser accounts are free for a year.")
     assert r.passed
 
 
