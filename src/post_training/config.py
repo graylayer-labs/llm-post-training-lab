@@ -9,7 +9,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
-from typing import Any, get_type_hints
+from typing import Any, get_args, get_origin, get_type_hints
 
 import yaml
 
@@ -77,6 +77,66 @@ class SftConfig:
     train: TrainSettings = field(default_factory=TrainSettings)
 
 
+@dataclass(frozen=True)
+class SystemSettings:
+    """One system to evaluate: the base model, plus a LoRA adapter or none."""
+
+    name: str
+    adapter: str | None = None
+
+
+def _default_systems() -> tuple[SystemSettings, ...]:
+    return (
+        SystemSettings("base", None),
+        SystemSettings("sft", "outputs/sft/adapter"),
+        SystemSettings("dpo", "outputs/dpo/adapter"),
+    )
+
+
+@dataclass(frozen=True)
+class GenerationSettings:
+    """Greedy decoding, the same for every system.
+
+    batch_size is a setting, not a speed knob: batched bf16 on MPS changes
+    greedy outputs (docs/decisions.md), so it stays fixed across systems.
+    """
+
+    max_new_tokens: int = 384
+    batch_size: int = 1
+    seed: int = 0
+
+
+@dataclass(frozen=True)
+class PerplexitySettings:
+    """Truncate prompt + answer at SFT's max_length, as TRL did in training."""
+
+    max_length: int = 512
+
+
+@dataclass(frozen=True)
+class BootstrapSettings:
+    resamples: int = 1000
+    seed: int = 0
+
+
+@dataclass(frozen=True)
+class EvalConfig:
+    """Score each system on the held-out rows saved by the SFT run.
+
+    eval_rows is the SFT run's ``eval_rows.json``. limit keeps the first N
+    rows (for smoke runs); None keeps them all.
+    """
+
+    model_name: str
+    output_dir: str
+    eval_rows: str
+    limit: int | None = None
+    systems: tuple[SystemSettings, ...] = field(default_factory=_default_systems)
+    generation: GenerationSettings = field(default_factory=GenerationSettings)
+    perplexity: PerplexitySettings = field(default_factory=PerplexitySettings)
+    bootstrap: BootstrapSettings = field(default_factory=BootstrapSettings)
+
+
 def _build[T](cls: type[T], raw: Any) -> T:
     if not is_dataclass(cls):
         return raw
@@ -89,8 +149,9 @@ def _build[T](cls: type[T], raw: Any) -> T:
         hint = hints[f.name]
         if is_dataclass(hint):
             value = _build(hint, value)
-        elif f.name in ("target_modules", "trainable_tokens"):
-            value = tuple(value)
+        elif get_origin(hint) is tuple:
+            item = get_args(hint)[0]
+            value = tuple(_build(item, v) if is_dataclass(item) else v for v in value)
         kwargs[f.name] = value
     return cls(**kwargs)
 

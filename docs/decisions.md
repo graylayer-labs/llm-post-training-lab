@@ -109,6 +109,31 @@ yet.
 
 ## Evaluation and preferences (planned)
 
+### Evaluate without a model judge
+
+*2026-10-03*
+
+- **Chose:** perplexity of the references, ROUGE-L and the rule-based
+  rubric, with counts and a bootstrap interval on rubric pass rates.
+- **Over:** adding a pairwise Claude judge (about 1,200 API calls, $1 to $5).
+- **Why:** the owner's choice, to keep cost inside the existing
+  subscription. The judge is a stated gap: nothing scores whether an answer
+  is correct or helpful beyond what the rubric's rules check. See #3.
+
+### Read the held-out rows from the SFT run's saved file
+
+*2026-10-03*
+
+- **Chose:** the eval harness reads the SFT run's `eval_rows.json` and
+  records a sha256 over the sorted `prompt_key`s in `results.json`.
+- **Over:** rebuilding the split from the data settings in the SFT run's
+  `summary.json`.
+- **Why:** a rebuild depends on today's split code and the dataset on the
+  Hub. The Part 1 summary records the same data settings as today's config,
+  but its split came from before prompts were de-duplicated (#15), so a
+  rebuild would not give back its 200 rows. The saved file is what the
+  adapter was held out from. See #3.
+
 ### Class finance rows by the prompt, and match figures as value sets
 
 *2026-10-03*
@@ -143,7 +168,8 @@ yet.
 
 ### Score answers with a rubric and a pairwise judge
 
-*2026-10-03*, **Planned**
+*2026-10-03*, **Superseded** by "Evaluate without a model judge": the
+judge was dropped on 2026-10-03. The rubric part stands.
 
 - **Chose:** a rule-based rubric plus a pairwise Claude judge with position
   swap, alongside perplexity and ROUGE-L. The rubric checks format, clean

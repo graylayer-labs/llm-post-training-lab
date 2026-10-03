@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from post_training.config import SftConfig, load_config
+from post_training.config import EvalConfig, SftConfig, load_config
 
 
 def main() -> None:
@@ -38,5 +38,10 @@ def main() -> None:
             raise SystemExit(f"error: {e}") from e
         summary.pop("log_history")
         print(json.dumps(summary, indent=1))
+    elif a.cmd == "eval":
+        from post_training.eval import harness
+
+        results = harness.run_eval(load_config(a.config, EvalConfig))
+        print(harness.render_markdown(results))
     else:
         raise SystemExit(f"{a.cmd}: not implemented yet")

@@ -1,0 +1,25 @@
+# Smoke test of the eval harness: 10 prompts, short answers.
+# Uses the Part 1 adapter and its saved held-out rows, so it never touches
+# outputs/sft. The Part 1 split overlapped training on 4 of 200 prompts, so
+# these numbers check the plumbing only and are not quotable.
+model_name: Qwen/Qwen2.5-0.5B
+output_dir: outputs/scratch-eval-smoke
+
+eval_rows: outputs/sft_part1_overlapping_split/eval_rows.json
+limit: 10
+
+systems:
+  - {name: base, adapter: null}
+  - {name: sft_part1, adapter: outputs/sft_part1_overlapping_split/adapter}
+
+generation:
+  max_new_tokens: 64
+  batch_size: 1
+  seed: 0
+
+perplexity:
+  max_length: 512
+
+bootstrap:
+  resamples: 1000
+  seed: 0
