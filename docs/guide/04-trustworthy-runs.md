@@ -107,9 +107,7 @@ Part 1 split cannot be rebuilt after the de-duplication
 the subscription. Nothing scores whether an answer is correct or helpful
 beyond the rubric's rules ([decisions.md][nojudge]).
 
-**Not yet run.** The full harness on the re-run adapter and on DPO. The
-only run so far is a 10-prompt smoke, not quotable ([issue #23][i23]). No
-harness results are quoted in this guide yet.
+**Run since.** The full harness ran on base, SFT and DPO; see chapter 6.
 
 ## How to reproduce it
 
