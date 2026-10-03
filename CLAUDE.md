@@ -145,3 +145,5 @@ at most:
 - The shell is zsh. Run multi-line scripts as `bash <<'EOF'`. macOS has no
   `timeout`.
 - `gh project` sometimes fails with `unknown owner type`. Run it again.
+- Don't move the main checkout (pull, switch) while a run started from it is
+  in progress: a crash-resume checks the commit and will refuse.

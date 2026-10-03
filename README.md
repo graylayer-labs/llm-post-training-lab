@@ -67,31 +67,49 @@ and on the [project board](https://github.com/orgs/graylayer-labs/projects/3).
 
 | Part | Issue | State |
 |---|---|---|
-| 1. LoRA SFT | [#1](https://github.com/graylayer-labs/llm-post-training-lab/issues/1) | Run recorded; PR not yet merged |
+| 1. LoRA SFT | [#1](https://github.com/graylayer-labs/llm-post-training-lab/issues/1) | Done. Clean re-run in [#12](https://github.com/graylayer-labs/llm-post-training-lab/issues/12) |
 | 2. DPO | [#2](https://github.com/graylayer-labs/llm-post-training-lab/issues/2) | Not started |
-| 3. Evaluation harness | [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3) | Not started |
+| 3. Evaluation harness | [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3) | Harness built (#23); full three-system run pending DPO |
 | 4. Write-up | [#4](https://github.com/graylayer-labs/llm-post-training-lab/issues/4) | Not started |
+
+Supporting tasks, all done: run provenance
+([#10](https://github.com/graylayer-labs/llm-post-training-lab/issues/10)),
+rule-based rubric
+([#11](https://github.com/graylayer-labs/llm-post-training-lab/issues/11)),
+de-duplicated split
+([#15](https://github.com/graylayer-labs/llm-post-training-lab/issues/15)),
+stop-token probe
+([#19](https://github.com/graylayer-labs/llm-post-training-lab/issues/19)),
+crash-safe checkpoints
+([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21)) and
+the eval harness code
+([#23](https://github.com/graylayer-labs/llm-post-training-lab/issues/23)). The
+follow-along guide is
+[#13](https://github.com/graylayer-labs/llm-post-training-lab/issues/13).
 
 ## Results so far
 
-Part 1 only. One run, one seed, on an Apple M4 laptop (MPS).
-Full detail is in [docs/sft-results.md](docs/sft-results.md).
+Part 1 only. One run, one seed, on an Apple M4 laptop (MPS), at commit
+`76739e6` on a clean tree with a de-duplicated split. Full detail is in
+[docs/sft-results.md](docs/sft-results.md).
 
 | | Value |
 |---|---|
 | Trainable parameters | 8.8M of 494M (1.78%) |
-| Eval loss, 200 held-out answers | 2.28 before, 1.83 after |
-| Wall time, 1 epoch | 854 s |
-| Peak MPS memory, sampled per step (approximate) | 8.53 GB |
-| Answers that end on a stop token, 5 samples | base 2 of 5, SFT 4 of 5 |
+| Eval loss, 200 held-out answers | 2.169 before, 1.714 after |
+| Wall time, 1 epoch | 1,282.7 s (GPU shared with other jobs, so contended) |
+| Peak MPS memory, sampled per step (approximate) | 8.10 GB |
+| Stop token ranked first at the end of a reference answer | base 0.00, SFT 0.795 (200 rows) |
 
-- The base model often runs on to the token limit. SFT taught it to close its
-  turn, but only once the chat-token embedding rows were trained as well as
-  the LoRA adapters.
+- The base model almost never predicts the stop token at the end of an
+  answer: its median rank for `<|im_end|>` is 123,031 of about 152,000.
+  After SFT the median rank is 1. SFT taught the model to close its turn, but
+  only once the chat-token embedding rows were trained as well as the LoRA
+  adapters.
 - Training ran out of memory until the MPS allocator cache was emptied after
   every step.
-- SFT answers still fall into repetition loops. No rubric scores exist yet,
-  so answer quality is not measured.
+- SFT answers still fall into repetition loops in the Part 1 samples. The
+  re-run has no generated answers yet; the eval harness will score them.
 
 ## Quickstart
 
@@ -133,16 +151,19 @@ uv run ruff check . && uv run ruff format --check . && uv run ty check && uv run
 ## Repo layout
 
 ```
-configs/            one YAML file per run (sft.yaml, sft_smoke.yaml)
+configs/            one YAML file per run (sft, eval and their smoke variants)
 src/post_training/
   cli.py            the `lab` command: sft, dpo, eval
   config.py         typed dataclasses loaded from YAML
   data/finance.py   load, filter, split and render rows as chat messages
   train/sft.py      LoRA SFT with TRL's SFTTrainer
   train/common.py   model loading, memory sampling, cache release
-  eval/             rubric, metrics and the eval harness (Part 3)
-tools/              one-off analysis scripts
-tests/              unit tests for config, data and SFT setup
+  generate.py       batched, left-padded generation with shared stop tokens
+  run.py            run provenance: commit, tree state, library versions
+  eval/             rubric, metrics, stop-token probe helper, eval harness
+tools/              one-off scripts: generation compare, memory probe,
+                    rubric on references, stop-token probe
+tests/              unit tests for config, data, SFT, resume and eval
 docs/               decisions and results
 outputs/, data/     run outputs and data, gitignored
 ```

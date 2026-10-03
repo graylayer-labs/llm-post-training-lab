@@ -154,15 +154,19 @@ yet.
   finance in passing ("financial analyst" in a list of jobs), and recipes or
   code carry numbers no reference repeats. Exact matching would fail `0.05`
   against `5%`. See #11.
-- **Result:** a scratch run of `tools/rubric_on_references.py` on the
-  pre-merge branch (commit `34f850f`, before the split was de-duplicated in
-  #15) covered the 2,200 training and eval references. The quotable re-run
-  from `main` belongs to #12. 514 (23.4%) are finance rows. The references pass
-  98.4% overall, `domain_terms` 96.5% and `repetition` 99.2%.
+- **Result:** `tools/rubric_on_references.py` on `main` at commit `723c41a`
+  (clean tree) scored the 2,200 training and eval references, saved in
+  `outputs/rubric_references/v1/summary.json`. 283 (12.9%) are finance
+  rows. The references pass 98.6% overall (2,170 of 2,200), `repetition`
+  99.1%, `domain_terms` 96.8% (274 of 283) and `format` 99.95% (2,199 of
+  2,200). An earlier scratch run before the split was de-duplicated (#15)
+  found 23.4% finance rows. De-duplication cut the share to 12.9%:
+  finance-alpaca's finance rows were heavily duplicated, so the training
+  data is mostly general Alpaca instructions.
 - **Limit:** `ungrounded_numbers` checks grounding, not truth. A correct
   figure that the reference does not state fails it, for example "$52.50"
   for $50 after a year at 5%. With the reference removed as a number source,
-  193 of the 514 finance references (37.5%) fail it. An earlier, narrower
+  105 of the 283 finance references (37.1%) fail it. An earlier, narrower
   classifier gave 38.2%, measured but not saved. A good answer that cites
   its own figures is therefore often marked ungrounded.
 
