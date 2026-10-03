@@ -23,14 +23,22 @@ import torch
 from post_training.data.finance import to_messages
 from post_training.eval.stop_token import token_prob_rank
 from post_training.run import run_provenance
-from post_training.train.common import load_model_and_tokenizer
+from post_training.train.common import (
+    load_model_and_tokenizer,
+    release_accelerator_cache,
+)
 
 END = "<|im_end|>"
 
 
 def probe_rows(
-    model: Any, tok: Any, rows: list[dict[str, Any]]
+    model: Any, tok: Any, rows: list[dict[str, Any]], max_length: int
 ) -> list[dict[str, Any]]:
+    """Probe each row whose closing ``<|im_end|>`` falls inside ``max_length``.
+
+    SFT truncates at ``max_length``, so a longer row's stop token was never a
+    training target. Such rows are skipped, not probed.
+    """
     end_id = tok.convert_tokens_to_ids(END)
     out = []
     for row in rows:
@@ -38,6 +46,8 @@ def probe_rows(
         ids = tok(text, return_tensors="pt", add_special_tokens=False).input_ids
         # The template ends the assistant turn with <|im_end|>, then a newline.
         end_pos = int((ids[0] == end_id).nonzero()[-1].item())
+        if end_pos >= max_length:
+            continue
         with torch.no_grad():
             logits = model(ids.to(model.device)).logits[0]
         prob, rank = token_prob_rank(logits, end_pos - 1, end_id)
@@ -75,11 +85,14 @@ def main() -> None:
 
     rows = json.loads((a.run_dir / "eval_rows.json").read_text())[: a.n]
     adapter = a.run_dir / "adapter"
+    run_summary = json.loads((a.run_dir / "summary.json").read_text())
+    max_length = run_summary["config"]["train"]["max_length"]
     result: dict[str, Any] = {
         "provenance": prov,
         "run_dir": str(a.run_dir),
         "adapter": str(adapter),
         "n": len(rows),
+        "max_length": max_length,
         "model_name": a.model,
         "token": END,
         "models": {},
@@ -87,8 +100,11 @@ def main() -> None:
     for label, ad in (("base", None), ("sft", str(adapter))):
         model, tok = load_model_and_tokenizer(a.model, ad)
         model.eval()
-        result["models"][label] = summarise(probe_rows(model, tok, rows))
+        probed = probe_rows(model, tok, rows, max_length)
+        result["models"][label] = summarise(probed)
+        result["n_probed"] = len(probed)
         del model
+        release_accelerator_cache()
     out.write_text(json.dumps(result, indent=2) + "\n")
     for label, m in result["models"].items():
         print(
@@ -96,6 +112,7 @@ def main() -> None:
             f"mean_prob={m['mean_prob']:.4g} median_rank={m['median_rank']} "
             f"share_rank_1={m['share_rank_1']:.2f}"
         )
+    print(f"probed {result['n_probed']} of {len(rows)} rows (max_length {max_length})")
     print(f"wrote {out}")
 
 
