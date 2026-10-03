@@ -138,6 +138,7 @@ def run_sft(cfg: SftConfig) -> dict[str, Any]:
         "provenance": provenance,
         "device": device_report(),
         "peak_memory_gb": round(peak.peak_gb, 2),
+        "data_stats": splits.stats(),
         "params_total": trainable_before,
         "params_trainable": trainable,
         "trainable_pct": round(100 * trainable / trainable_before, 3),

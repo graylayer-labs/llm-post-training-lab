@@ -14,6 +14,12 @@ The reasons behind each setting are in [decisions.md](decisions.md).
 - One seed per run. Small differences between runs are not evidence.
 - The final run was made on the working tree just before commit `4c35d55`,
   not from a clean commit.
+- The Part 1 split overlapped training: 4 of the 200 held-out prompts also
+  appeared among the 2,000 training rows, because the dataset contains
+  duplicate rows and the split did not remove them. `make_splits` now
+  de-duplicates by prompt before shuffling, so train and eval are disjoint.
+  The numbers below come from the overlapping split; the re-run in #12
+  replaces them. See [#15](https://github.com/graylayer-labs/llm-post-training-lab/issues/15).
 - Source files: `outputs/sft/` and `outputs/sft_v1_lora_only/`
   (`summary.json`, `run.log`, `generations.json`). `outputs/` is gitignored,
   so these files are local only.

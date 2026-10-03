@@ -38,10 +38,28 @@ def prompt_messages(row: Row) -> list[Message]:
     return to_messages(row)[:-1]
 
 
+def prompt_key(row: Row) -> str:
+    """Identity of a row's prompt: instruction + input, whitespace-collapsed.
+
+    Case is kept. Used to de-duplicate rows and to check that no held-out
+    prompt reaches training data in any stage.
+    """
+    text = f"{row['instruction']}\n{row.get('input') or ''}"
+    return " ".join(text.split())
+
+
 @dataclass(frozen=True)
 class FinanceSplits:
     train: list[Row]
     eval: list[Row]
+    duplicates_dropped: int = 0
+
+    def stats(self) -> dict[str, int]:
+        return {
+            "train_rows": len(self.train),
+            "eval_rows": len(self.eval),
+            "duplicates_dropped": self.duplicates_dropped,
+        }
 
 
 def make_splits(
@@ -63,12 +81,25 @@ def make_splits(
         for r in rows
         if min_chars <= len(r["output"]) <= max_chars and r["instruction"].strip()
     ]
+    # De-duplicate before shuffling, keeping the first occurrence, so the
+    # same prompt can never land in both train and eval.
+    seen: set[str] = set()
+    unique: list[Row] = []
+    for r in kept:
+        key = prompt_key(r)
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    duplicates_dropped = len(kept) - len(unique)
+    kept = unique
     rng = random.Random(seed)
     rng.shuffle(kept)
     if len(kept) < train_size + eval_size:
         raise ValueError(f"only {len(kept)} rows after filtering")
     return FinanceSplits(
-        train=kept[:train_size], eval=kept[train_size : train_size + eval_size]
+        train=kept[:train_size],
+        eval=kept[train_size : train_size + eval_size],
+        duplicates_dropped=duplicates_dropped,
     )
 
 

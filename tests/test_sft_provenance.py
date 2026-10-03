@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from post_training.config import SftConfig
+from post_training.data.finance import FinanceSplits
 from post_training.run import run_provenance
 from post_training.train import sft
 
@@ -61,7 +62,7 @@ def test_summary_provenance_is_captured_before_training(
 
     monkeypatch.setattr("trl.SFTTrainer", StubTrainer)
     monkeypatch.setattr(
-        sft, "load_splits", lambda *a, **k: SimpleNamespace(train=[], eval=[])
+        sft, "load_splits", lambda *a, **k: FinanceSplits(train=[], eval=[])
     )
     monkeypatch.setattr(
         sft, "load_model_and_tokenizer", lambda name: (StubModel(), StubTok())
