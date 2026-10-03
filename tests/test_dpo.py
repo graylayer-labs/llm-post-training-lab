@@ -27,7 +27,7 @@ from post_training.config import (
     load_config,
     to_dict,
 )
-from post_training.jsonl_cache import adapter_hash
+from post_training.eval.harness import adapter_hash
 from post_training.train import dpo
 
 PROV = {"commit": "aaa", "dirty": False, "scratch": False, "scratch_reason": None}

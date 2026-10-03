@@ -44,14 +44,12 @@ from datasets import Dataset
 from trl import DPOConfig, DPOTrainer
 
 from post_training.config import DpoConfig, to_dict
-from post_training.jsonl_cache import adapter_hash
+from post_training.eval.harness import adapter_hash
 from post_training.run import run_provenance
 from post_training.train.checkpoint import (
     RESUME_NOTE,
-    ResumeError,
     check_resume,
     plan_start,
-    train_loss_from_log,
 )
 from post_training.train.common import (
     PeakMemoryCallback,
@@ -59,8 +57,9 @@ from post_training.train.common import (
     bf16_supported,
     device_report,
     pick_device,
+    train_loss_from_log,
 )
-from post_training.train.sft import build_lora_config
+from post_training.train.sft import ResumeError, build_lora_config
 
 __all__ = ["ResumeError", "run_dpo"]
 

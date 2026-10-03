@@ -1,8 +1,8 @@
-"""Checkpoint and resume rules shared by the training stages.
+"""Start and resume checks for a checkpointed training run.
 
-This mirrors the SFT checkpoint/resume work in #21 (branch
-``feat/21-ckpt-resume``), which keeps the same helpers in ``train/common.py``
-and ``train/sft.py``. Once both are merged, SFT and DPO should share one copy.
+The same rules as SFT's (#21, ``train/sft.py``), with the config passed as a
+plain dict so any stage can use them. SFT still has its own copy, typed to
+``SftConfig``; the two can merge in a later refactor.
 
 A run keeps ``provenance.json`` and ``config.json`` from its first start. A
 resume must use the same commit, a clean tree and the same config, unless the
@@ -14,9 +14,11 @@ from.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
+
+from post_training.train.common import checkpoint_dirs, last_complete_checkpoint
+from post_training.train.sft import ResumeError
 
 RESUME_NOTE = (
     "The Trainer restores optimizer, scheduler and data order on resume, but "
@@ -25,40 +27,6 @@ RESUME_NOTE = (
     "mean of logged losses; wall_seconds, peak_memory_gb and trainer-side "
     "timings cover only the resumed part."
 )
-
-
-class ResumeError(RuntimeError):
-    """A start or resume that would lose, overwrite or mix up a run."""
-
-
-def checkpoint_dirs(ckpt_dir: Path) -> list[Path]:
-    """All ``checkpoint-N`` directories under ``ckpt_dir``, newest first."""
-    if not ckpt_dir.is_dir():
-        return []
-    found = [
-        (int(m.group(1)), d)
-        for d in ckpt_dir.iterdir()
-        if d.is_dir() and (m := re.fullmatch(r"checkpoint-(\d+)", d.name))
-    ]
-    return [d for _, d in sorted(found, key=lambda t: t[0], reverse=True)]
-
-
-def last_complete_checkpoint(ckpt_dir: Path) -> Path | None:
-    """Newest checkpoint that has ``trainer_state.json`` (written last)."""
-    for d in checkpoint_dirs(ckpt_dir):
-        if (d / "trainer_state.json").exists():
-            return d
-    return None
-
-
-def train_loss_from_log(log_history: list[dict[str, Any]]) -> float | None:
-    """Mean of the logged step-wise training losses, or None if none logged.
-
-    The Trainer's own ``training_loss`` is wrong after a resume; the log
-    survives checkpoints.
-    """
-    losses = [h["loss"] for h in log_history if "loss" in h]
-    return sum(losses) / len(losses) if losses else None
 
 
 def plan_start(out: Path, resume: bool) -> Path | None:

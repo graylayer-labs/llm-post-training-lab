@@ -23,7 +23,7 @@ The prompts are the SFT run's own training prompts. The split is rebuilt
 from the run's ``summary.json`` and must match its saved ``eval_rows.json``
 exactly by prompt key, which proves it is the same split. Samples are
 appended to ``samples.jsonl`` batch by batch and a crashed run resumes from
-the saved batches (see ``post_training.jsonl_cache``).
+the saved batches, as the eval harness does (``eval/harness.py``).
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from __future__ import annotations
 import gc
 import hashlib
 import json
+import os
 import time
 from collections import Counter
 from collections.abc import Sequence
@@ -46,15 +47,9 @@ from post_training.data.finance import (
     prompt_messages,
     to_messages,
 )
+from post_training.eval.harness import adapter_hash, read_cache, write_atomic
 from post_training.eval.rubric import RUBRIC_VERSION, RubricResult, score
 from post_training.generate import generate, stop_token_ids
-from post_training.jsonl_cache import (
-    adapter_hash,
-    append_records,
-    read_cache,
-    read_header,
-    write_atomic,
-)
 from post_training.run import run_provenance
 from post_training.train.common import (
     load_model_and_tokenizer,
@@ -115,6 +110,29 @@ def check_split(splits: FinanceSplits, eval_rows: Sequence[Row], source: Path) -
         raise SplitMismatchError(
             f"{len(overlap)} training prompts are held-out prompts too"
         )
+
+
+def read_header(path: Path) -> dict[str, Any] | None:
+    """The header line of a samples file, or None if absent or unreadable."""
+    if not path.exists():
+        return None
+    with path.open() as f:
+        first = f.readline()
+    if not first.endswith("\n"):
+        return None
+    try:
+        header = json.loads(first)
+    except ValueError:
+        return None
+    return header if isinstance(header, dict) else None
+
+
+def append_records(f: Any, records: list[dict[str, Any]]) -> None:
+    """Append one JSON line per record to an open file, then fsync it."""
+    for rec in records:
+        f.write(json.dumps(rec) + "\n")
+    f.flush()
+    os.fsync(f.fileno())
 
 
 def release_model(model: Any) -> None:
