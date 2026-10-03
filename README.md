@@ -22,9 +22,9 @@ the memory and 70B reasoning is [docs/memory-and-scale.md](docs/memory-and-scale
   the rubric pass rate rose from 73.0% to 89.0%, and the rejected loops'
   per-token log-prob nearly doubled in cost while the chosen answers barely
   moved.
-- **DPO also learned "shorter".** Mean answer length halved, 111.6 to 51.9
-  tokens, even on prompts SFT already finished, where ROUGE-L dipped (0.314
-  against 0.330). The pairs' rejected answers were 2.9 times longer than the
+- **DPO also learned "shorter".** Mean answer length fell from 111.6 to
+  51.9 tokens. Even on the 173 prompts SFT already finished, it fell from
+  69.1 to 50.4 tokens and ROUGE-L dipped (0.330 to 0.314). The pairs' rejected answers were 2.9 times longer than the
   chosen, so the run cannot separate "do not loop" from "be short".
 - **The rubric sees stopping and looping, not correctness.** A wrong
   12-token algebra answer passes every rule. The finance rules rest on 24
