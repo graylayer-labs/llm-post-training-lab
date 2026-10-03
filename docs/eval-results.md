@@ -353,9 +353,9 @@ model graders. **The grading was done by models, not by a person.**
   the other's grades. Their grades are `grades_opus.jsonl` and
   `grades_sonnet.jsonl`, one line per prompt and label, each with a reason.
 - **The grades.** Each answer is graded against the reference as
-  `correct`, `partly` or `wrong`. The graders' full instructions were given
-  in their agent briefs and are not saved beside the grades; the saved
-  reasons show how the grades were applied. An answer whose right content
+  `correct`, `partly` or `wrong`. The graders' full instructions are in
+  [grading-briefs.md](grading-briefs.md); the saved reasons show how the
+  grades were applied. An answer whose right content
   sits inside a loop can be graded `partly`, so `partly` mixes "incomplete"
   with "right but looping" (see "Limits of the check").
 - **Unblinding.** `tools/blind_grading.py unblind` validates every grade
@@ -500,8 +500,9 @@ below the 84.0% (kappa 0.756) between the two kept graders.
   can be graded `partly`, so "correct or partly" entangles correctness with
   looping. The `correct` rate is the cleaner measure, and the both-pass
   subset is the attempt to separate the two.
-- **Grader instructions not saved.** The briefs given to the graders are
-  not in `outputs/grading/v1`; only their grades and reasons are.
+- **Unequal briefs.** The Sonnet rerun was given stricter process rules
+  (read every answer in full, no length or scripted grading) than the Opus
+  grader. Both briefs are in [grading-briefs.md](grading-briefs.md).
 
 ## Limits
 
