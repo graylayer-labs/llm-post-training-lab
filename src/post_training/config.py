@@ -137,6 +137,70 @@ class EvalConfig:
     bootstrap: BootstrapSettings = field(default_factory=BootstrapSettings)
 
 
+@dataclass(frozen=True)
+class PairsConfig:
+    """Preference-pair building: sample the SFT model on its own train prompts.
+
+    The model, adapter and data split all come from ``sft_run_dir``, so a
+    pairs file can never mix one SFT run's model with another's prompts.
+    Each prompt is sampled ``k`` times. ``max_new_tokens`` must be at least
+    384 so that an answer that never stops can be told apart from a long one.
+    """
+
+    output_dir: str
+    sft_run_dir: str = "outputs/sft"
+    n_prompts: int = 200
+    k: int = 4
+    temperature: float = 1.0
+    top_p: float = 1.0
+    top_k: int = 0
+    seed: int = 0
+    batch_size: int = 8
+    max_new_tokens: int = 384
+
+
+@dataclass(frozen=True)
+class DpoTrainSettings:
+    """DPO optimisation and checkpointing.
+
+    ``beta`` scales the implicit reward: larger keeps the policy closer to the
+    reference. ``eval_fraction`` of the pairs (seeded split) is held out for
+    reward accuracy and margins and never trained on.
+    """
+
+    beta: float = 0.1
+    epochs: float = 1.0
+    learning_rate: float = 5e-5
+    batch_size: int = 2
+    grad_accum: int = 8
+    max_length: int = 768
+    warmup_ratio: float = 0.1
+    logging_steps: int = 5
+    seed: int = 0
+    eval_fraction: float = 0.1
+    save_steps: int = 25
+    save_total_limit: int = 2
+    keep_checkpoints: bool = False
+
+
+@dataclass(frozen=True)
+class DpoConfig:
+    """DPO on top of an SFT run, with the SFT model as the frozen reference.
+
+    ``reference`` must be ``"sft"``; it is stored so the choice is visible in
+    the config and the saved summary.
+    """
+
+    output_dir: str
+    sft_run_dir: str = "outputs/sft"
+    pairs_dir: str = "outputs/pairs"
+    reference: str = "sft"
+    lora: LoraSettings = field(
+        default_factory=lambda: LoraSettings(trainable_tokens=())
+    )
+    train: DpoTrainSettings = field(default_factory=DpoTrainSettings)
+
+
 def _build[T](cls: type[T], raw: Any) -> T:
     if not is_dataclass(cls):
         return raw

@@ -1,0 +1,13 @@
+# Stage 2a: preference pairs from the SFT model's own samples.
+# Model, adapter and data split all come from sft_run_dir.
+sft_run_dir: outputs/sft
+output_dir: outputs/pairs
+
+n_prompts: 200        # first n training prompts of the SFT run's split
+k: 4                  # samples per prompt
+temperature: 1.0      # plain sampling: the SFT model's own distribution
+top_p: 1.0
+top_k: 0              # 0 turns top-k off
+seed: 0               # batch b is seeded seed + b
+batch_size: 8         # a multiple of k keeps a prompt's samples in one batch
+max_new_tokens: 384   # >= 384 so a long answer is not mistaken for no stop
