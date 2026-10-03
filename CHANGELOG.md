@@ -9,6 +9,16 @@ each links to the issue that holds the detail.
 ### 2026-10-03
 
 **Added**
+- Part 4 write-up. `docs/what-each-stage-changed.md` is the front door:
+  base, SFT and DPO in one table, what each stage changed, what broke, how
+  the model was judged without a benchmark, and the limits, every number
+  linked to its run. `docs/memory-and-scale.md` puts SFT's 8.10 GiB and
+  DPO's 13.19 GiB peaks beside back-of-envelope estimates in one table, and
+  reasons through the same recipe at 70B across nodes (sharding,
+  communication, the reference model, LoRA), marked as reasoning, not
+  measurement. The README now opens with what was found and links both.
+  ([write-up](docs/what-each-stage-changed.md),
+  [#4](https://github.com/graylayer-labs/llm-post-training-lab/issues/4))
 - `tools/compare_systems.py` compares saved eval generations between
   systems on CPU: length distributions, rubric rates among answers that
   stopped, and like-for-like subsets. Output carries run provenance.
