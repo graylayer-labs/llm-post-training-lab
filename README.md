@@ -35,8 +35,8 @@ flowchart LR
 3. **DPO** on preference pairs built from the project's own data, with the SFT
    model as reference. Planned.
 4. **Evaluation** of base, SFT and DPO on the same 200 held-out prompts:
-   perplexity, ROUGE-L, a rule-based rubric and a pairwise Claude judge.
-   Planned.
+   perplexity, ROUGE-L and a rule-based rubric, with no model judge. The
+   harness is built; the full run is pending.
 
 ## Why this approach
 
@@ -51,9 +51,11 @@ flowchart LR
 - **Home-made preference pairs.** Real users rarely have preference data, so
   building pairs from the project's own SFT data is the realistic case. It
   also ties the DPO signal to the same rubric the evaluation scores.
-- **A rubric and a judge, not a public benchmark.** The task has no
-  benchmark, and loss metrics miss the failures that matter here. Those are
-  answers that never stop, repeat themselves or invent figures.
+- **A rubric, not a public benchmark.** The task has no benchmark, and loss
+  metrics miss the failures that matter here. Those are answers that never
+  stop, repeat themselves or invent figures. A model judge was dropped to
+  keep cost inside the existing subscription, so judged answer quality is a
+  stated gap.
 
 The full reasoning, with the alternatives for each choice, is in
 [docs/decisions.md](docs/decisions.md).
@@ -88,8 +90,8 @@ Full detail is in [docs/sft-results.md](docs/sft-results.md).
   the LoRA adapters.
 - Training ran out of memory until the MPS allocator cache was emptied after
   every step.
-- SFT answers still fall into repetition loops. No rubric or judge scores
-  exist yet, so answer quality is not measured.
+- SFT answers still fall into repetition loops. No rubric scores exist yet,
+  so answer quality is not measured.
 
 ## Quickstart
 
@@ -106,13 +108,18 @@ uv run lab sft --config configs/sft.yaml          # about 15 min on an M4
 # Compare greedy answers from base and base + adapter on held-out prompts
 uv run python tools/compare_generations.py outputs/sft -n 5
 
+# Part 3: score base, SFT and DPO on the held-out prompts. A system whose
+# adapter is missing is skipped. The smoke config uses 10 prompts.
+uv run lab eval --config configs/eval_smoke.yaml
+uv run lab eval --config configs/eval.yaml
+
 # Peak memory for 8 steps: LoRA at any rank, or a full fine-tune
 uv run python tools/memory_lora_vs_full.py --mode lora --rank 16
 uv run python tools/memory_lora_vs_full.py --mode full
 ```
 
-`lab dpo` and `lab eval` exist as commands but exit with "not implemented
-yet" until Parts 2 and 3 land.
+`lab dpo` exists as a command but exits with "not implemented yet" until
+Part 2 lands.
 
 Each run writes `summary.json`, the eval rows and the adapter to its
 `output_dir`.
@@ -133,7 +140,7 @@ src/post_training/
   data/finance.py   load, filter, split and render rows as chat messages
   train/sft.py      LoRA SFT with TRL's SFTTrainer
   train/common.py   model loading, memory sampling, cache release
-  eval/             evaluation harness (Part 3, empty so far)
+  eval/             rubric, metrics and the eval harness (Part 3)
 tools/              one-off analysis scripts
 tests/              unit tests for config, data and SFT setup
 docs/               decisions and results
