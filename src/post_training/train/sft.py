@@ -17,6 +17,7 @@ from peft import LoraConfig
 
 from post_training.config import LoraSettings, SftConfig, to_dict
 from post_training.data.finance import Row, load_splits, to_messages
+from post_training.run import run_provenance
 from post_training.train.common import (
     PeakMemoryCallback,
     ReleaseCacheCallback,
@@ -131,6 +132,7 @@ def run_sft(cfg: SftConfig) -> dict[str, Any]:
 
     summary = {
         "config": to_dict(cfg),
+        "provenance": run_provenance(),
         "device": device_report(),
         "peak_memory_gb": round(peak.peak_gb, 2),
         "params_total": trainable_before,
