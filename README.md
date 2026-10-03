@@ -60,7 +60,7 @@ That raises three questions this project works through by hand:
 
 ```mermaid
 flowchart LR
-    A["Qwen2.5-0.5B<br/>base"] --> B["LoRA SFT<br/>finance Q&A"]
+    A["Qwen2.5-0.5B<br/>base"] --> B["LoRA SFT<br/>finance-alpaca"]
     B --> C["DPO<br/>own preference pairs"]
     A --> D["Evaluation<br/>same 200 held-out prompts"]
     B --> D
@@ -69,7 +69,10 @@ flowchart LR
 
 1. **Base model.** `Qwen/Qwen2.5-0.5B`, the base checkpoint, not Instruct.
 2. **LoRA SFT** on 2,000 rows of `gbharti/finance-alpaca`. The loss covers the
-   answer only.
+   answer only. After de-duplication the data is mostly general
+   instructions: 283 of the 2,200 training and held-out references (12.9%)
+   are finance
+   ([docs/decisions.md](docs/decisions.md#class-finance-rows-by-the-prompt-and-match-figures-as-value-sets)).
 3. **DPO** on preference pairs built from the project's own data, with the SFT
    model as reference.
 4. **Evaluation** of base, SFT and DPO on the same 200 held-out prompts:

@@ -55,8 +55,10 @@ per-rule rates are in eval-results.md.
 ## What SFT changed
 
 SFT was a LoRA (r=16, all seven projections) on 2,000 rows of
-`gbharti/finance-alpaca`, with the prompt masked from the loss and the two
-chat-token embedding rows trained in full. One epoch, 125 steps. Eval loss
+`gbharti/finance-alpaca` (despite the name, mostly general instructions
+after de-duplication: 12.9% of references are finance; see Limits), with
+the prompt masked from the loss and the two chat-token embedding rows
+trained in full. One epoch, 125 steps. Eval loss
 on the 200 held-out answers fell from 2.169 to 1.714
 ([sft-results.md](sft-results.md), Runs table, `outputs/sft/summary.json`,
 commit `76739e6`).
