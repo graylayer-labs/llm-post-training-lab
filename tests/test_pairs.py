@@ -82,6 +82,13 @@ def test_short_token_budget_is_refused(tmp_path: Path) -> None:
         pairs.run_pairs(PairsConfig(output_dir=str(tmp_path), max_new_tokens=64))
 
 
+def test_short_token_budget_is_refused_when_the_config_loads(tmp_path: Path) -> None:
+    p = tmp_path / "pairs.yaml"
+    p.write_text("output_dir: o\nmax_new_tokens: 64\n")
+    with pytest.raises(ValueError, match="384"):
+        load_config(p, PairsConfig)
+
+
 # --- end to end with stubs ----------------------------------------------------
 
 
@@ -156,11 +163,21 @@ class Gen:
 
 
 class Tok:
+    vocab = {"<pad>": 0, "<|im_end|>": 1, "<|endoftext|>": 2}
+
     def convert_tokens_to_ids(self, t: str) -> int:
         return {"<|im_end|>": 1, "<|endoftext|>": 2}[t]
 
+    def get_vocab(self) -> dict[str, int]:
+        return dict(self.vocab)
+
+    all_special_tokens = ["<|im_end|>", "<|endoftext|>"]
     eos_token_id = 2
     unk_token_id = None
+
+
+class OtherTok(Tok):
+    vocab = {**Tok.vocab, "extra": 3}
 
 
 def _sft_run(root: Path, eval_rows: list[dict[str, Any]] = EVAL) -> Path:
@@ -183,7 +200,11 @@ def _sft_run(root: Path, eval_rows: list[dict[str, Any]] = EVAL) -> Path:
 
 
 def _setup(
-    monkeypatch: pytest.MonkeyPatch, gen: Gen, train: list[dict[str, Any]] = TRAIN
+    monkeypatch: pytest.MonkeyPatch,
+    gen: Gen,
+    train: list[dict[str, Any]] = TRAIN,
+    tok: type[Tok] = Tok,
+    revision: str = "rev1",
 ) -> dict[str, Any]:
     seen: dict[str, Any] = {}
 
@@ -193,13 +214,14 @@ def _setup(
 
     def fake_load(model_name: str, adapter: str | None = None) -> tuple[Any, Any]:
         seen["load"] = (model_name, adapter)
-        return object(), Tok()
+        return object(), tok()
 
     monkeypatch.setattr(pairs, "load_splits", fake_splits)
     monkeypatch.setattr(pairs, "load_model_and_tokenizer", fake_load)
     monkeypatch.setattr(pairs, "generate", gen)
     monkeypatch.setattr(pairs, "run_provenance", lambda: dict(PROV))
     monkeypatch.setattr(pairs, "release_model", lambda model: None)
+    monkeypatch.setattr(pairs, "model_revision", lambda name: revision)
     return seen
 
 
@@ -425,6 +447,69 @@ def test_half_batch_is_cut_back_to_a_batch_boundary(
     m = pairs.run_pairs(_cfg(tmp_path, run))
     assert gen.calls == 2
     assert m["throughput"]["samples_reused"] == 4
+
+
+def test_raising_n_prompts_extends_without_resampling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _sft_run(tmp_path)
+    _setup(monkeypatch, Gen())
+    pairs.run_pairs(_cfg(tmp_path, run, n_prompts=4))  # 8 samples, 2 batches
+    samples = tmp_path / "pairs" / "samples.jsonl"
+    first = samples.read_text().splitlines()
+
+    gen = Gen()
+    _setup(monkeypatch, gen)
+    m = pairs.run_pairs(_cfg(tmp_path, run, n_prompts=6))
+    assert gen.calls == 1  # only the new batch of prompts 4 and 5
+    assert m["throughput"]["samples_reused"] == 8
+    assert m["counts"]["prompts"] == 6
+    again = samples.read_text().splitlines()
+    assert again[1:9] == first[1:9]
+    assert [json.loads(x)["index"] for x in again[1:]] == list(range(12))
+
+
+def test_lowering_n_prompts_is_refused_and_keeps_the_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _sft_run(tmp_path)
+    _setup(monkeypatch, Gen())
+    pairs.run_pairs(_cfg(tmp_path, run, n_prompts=6))
+    samples = tmp_path / "pairs" / "samples.jsonl"
+    before = samples.read_text()
+    with pytest.raises(pairs.CacheKeyError, match="n_prompts"):
+        pairs.run_pairs(_cfg(tmp_path, run, n_prompts=4))
+    assert samples.read_text() == before
+
+
+def test_key_records_tokenizer_and_model_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _sft_run(tmp_path)
+    _setup(monkeypatch, Gen())
+    m = pairs.run_pairs(_cfg(tmp_path, run))
+    header = json.loads(
+        (tmp_path / "pairs" / "samples.jsonl").read_text().splitlines()[0]
+    )
+    key = header["cache_key"]
+    assert len(key["tokenizer_sha256"]) == 64
+    assert key["model_revision"] == "rev1"
+    assert m["tokenizer_sha256"] == key["tokenizer_sha256"]
+    assert m["model_revision"] == "rev1"
+
+
+@pytest.mark.parametrize(
+    "change", [{"tok": OtherTok}, {"revision": "rev2"}], ids=["tokenizer", "rev"]
+)
+def test_other_tokenizer_or_revision_does_not_reuse_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: dict[str, Any]
+) -> None:
+    run = _sft_run(tmp_path)
+    _setup(monkeypatch, Gen())
+    pairs.run_pairs(_cfg(tmp_path, run))
+    _setup(monkeypatch, Gen(), **change)
+    with pytest.raises(pairs.CacheKeyError):
+        pairs.run_pairs(_cfg(tmp_path, run))
 
 
 def test_existing_samples_from_other_settings_are_not_overwritten(

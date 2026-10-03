@@ -47,7 +47,13 @@ from post_training.data.finance import (
     prompt_messages,
     to_messages,
 )
-from post_training.eval.harness import adapter_hash, read_cache, write_atomic
+from post_training.eval.harness import (
+    adapter_hash,
+    model_revision,
+    read_cache,
+    tokenizer_hash,
+    write_atomic,
+)
 from post_training.eval.rubric import RUBRIC_VERSION, RubricResult, score
 from post_training.generate import generate, stop_token_ids
 from post_training.run import run_provenance
@@ -347,14 +353,18 @@ def run_pairs(cfg: PairsConfig) -> dict[str, Any]:
             "seed": cfg.seed,
             "stop_token_ids": stop_token_ids(tok),
         }
+        # The key binds the whole ordered training split, not the first
+        # n_prompts of it: prompts are taken in split order, so raising
+        # n_prompts keeps every saved sample and samples only the new prompts.
         key = {
             "format_version": PAIRS_FORMAT_VERSION,
             "sft_run_dir": str(run),
             "model_name": model_name,
+            "model_revision": model_revision(model_name),
             "adapter": str(adapter),
             "adapter_sha256": a_hash,
-            "prompt_set_sha256": prompt_set_hash(rows),
-            "n_prompts": cfg.n_prompts,
+            "tokenizer_sha256": tokenizer_hash(tok),
+            "train_prompts_sha256": prompt_set_hash(splits.train),
             "k": cfg.k,
             "rubric_version": RUBRIC_VERSION,
             "generation": generation,
@@ -365,6 +375,13 @@ def run_pairs(cfg: PairsConfig) -> dict[str, Any]:
                 f"{samples_path} holds samples made with other settings or is "
                 "unreadable; use a new output_dir or move that file away. "
                 "Nothing was changed."
+            )
+        saved = len(read_cache(samples_path, key))
+        if saved > cfg.n_prompts * cfg.k:
+            raise CacheKeyError(
+                f"{samples_path} holds {saved} samples, more than n_prompts * k "
+                f"= {cfg.n_prompts * cfg.k}; lowering n_prompts would drop them. "
+                "Use a new output_dir. Nothing was changed."
             )
         started = (header or {}).get("started_provenance") or provenance
         samples, reused, seconds = _sample(
@@ -396,7 +413,10 @@ def run_pairs(cfg: PairsConfig) -> dict[str, Any]:
             "eval_prompts": len(held_out),
             "pair_prompts_in_eval": 0,
         },
-        "prompt_set_sha256": key["prompt_set_sha256"],
+        "prompt_set_sha256": prompt_set_hash(rows),
+        "train_prompts_sha256": key["train_prompts_sha256"],
+        "model_revision": key["model_revision"],
+        "tokenizer_sha256": key["tokenizer_sha256"],
         "rubric_version": RUBRIC_VERSION,
         "rejection_rule": REJECTION_RULE,
         "generation": {**generation, "k": cfg.k},

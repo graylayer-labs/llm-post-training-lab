@@ -165,6 +165,13 @@ class PairsConfig:
     batch_size: int = 8
     max_new_tokens: int = 384
 
+    def __post_init__(self) -> None:
+        if self.max_new_tokens < 384:
+            raise ValueError(
+                f"max_new_tokens={self.max_new_tokens}: need at least 384 so that "
+                "an answer that never stops is told apart from a long one"
+            )
+
 
 @dataclass(frozen=True)
 class DpoTrainSettings:
