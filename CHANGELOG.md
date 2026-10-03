@@ -9,6 +9,18 @@ each links to the issue that holds the detail.
 ### 2026-10-03
 
 **Added**
+- Every `summary.json` now records a `provenance` block (commit, tree state,
+  library versions) and marks a dirty-tree run as scratch. A shared batched
+  generator was added alongside it. ([#10](https://github.com/graylayer-labs/llm-post-training-lab/issues/10))
+- Rule-based rubric with five rules (format, clean stop, repetition, domain
+  terms, ungrounded numbers) and a finance-row classifier. ([#11](https://github.com/graylayer-labs/llm-post-training-lab/issues/11))
+- `tools/stop_token_probe.py` saves the probability and rank of `<|im_end|>`
+  at the end of reference answers, for base and SFT. ([#19](https://github.com/graylayer-labs/llm-post-training-lab/issues/19))
+- SFT writes checkpoints every 25 steps, and `lab sft --resume` continues a
+  crashed run only from the same commit and config. ([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21))
+- `lab eval` harness: perplexity, ROUGE-L and rubric rates on the same
+  held-out prompts, with a crash-safe generation cache. The model judge was
+  dropped. ([#23](https://github.com/graylayer-labs/llm-post-training-lab/issues/23))
 - Project docs: README, intent, decisions and the Part 1 results write-up.
 - `tools/compare_generations.py` decodes greedily from the base model and
   from base + adapter, and reports whether each answer ended on a stop token.
@@ -22,6 +34,13 @@ each links to the issue that holds the detail.
   finance-alpaca loader.
 
 **Result**
+- Clean SFT re-run at commit `76739e6` on the de-duplicated split: eval loss
+  fell from 2.169 to 1.714 on 200 held-out answers. The saved probe puts
+  `<|im_end|>` first in 0.795 of 200 reference positions for SFT, against
+  0.00 for the base model. The wall time of 1,282.7 s was contended by other
+  GPU jobs. ([results](docs/sft-results.md), ([#12](https://github.com/graylayer-labs/llm-post-training-lab/issues/12)))
+- Rubric on the 2,200 reference answers: 98.6% pass overall, with 12.9% finance
+  rows. (([#11](https://github.com/graylayer-labs/llm-post-training-lab/issues/11)))
 - First SFT run: eval loss on 200 held-out answers fell from 2.28 to 1.83,
   and 4 of 5 sample answers now end on the stop token, against 0 of 5 with
   LoRA alone. Repetition loops remain. One seed.
@@ -29,6 +48,12 @@ each links to the issue that holds the detail.
   [#1](https://github.com/graylayer-labs/llm-post-training-lab/issues/1))
 
 **Fixed**
+- Four of the 200 held-out prompts also appeared in training because
+  finance-alpaca repeats prompts. The split now drops repeated prompts before
+  shuffling (7,587 dropped), so train and eval are disjoint. ([#15](https://github.com/graylayer-labs/llm-post-training-lab/issues/15))
+- The first SFT re-run was killed at step 18 of 125 by another agent's
+  `pkill -f`. It led to checkpoints (([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21))) and a machine-wide guard
+  against pattern kills; the re-run completed. ([#12](https://github.com/graylayer-labs/llm-post-training-lab/issues/12))
 - Training on MPS ran out of memory as the allocator cache grew every step.
   The cache is now emptied after each step.
   ([#1](https://github.com/graylayer-labs/llm-post-training-lab/issues/1))
