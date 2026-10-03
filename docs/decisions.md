@@ -205,6 +205,37 @@ judge was dropped on 2026-10-03. The rubric part stands.
   unmerged SFT model by rounding. The trained policy is
   merge(base, SFT adapter) plus the DPO LoRA, and must be loaded that way.
 
+### Treat held-out pair accuracy as a fit check, not a result
+
+*2026-10-03*
+
+- **Chose:** report DPO's reward accuracy and margins on the held-out
+  pairs only as a check that training fits the preference data. Claims
+  about what DPO changed come from the eval harness on the SFT run's
+  held-out prompts.
+- **Over:** quoting held-out pair accuracy as DPO's effect.
+- **Why:** the held-out pairs come from the same SFT *training* prompts as
+  the training pairs, and their chosen answers are references SFT trained
+  on. Their accuracy measures fit to that pair distribution, not
+  generalisation. The summary also records completion lengths and
+  per-token log-probs on those pairs. Rejected samples are long rambles,
+  so a "shorter wins" shortcut would show there.
+
+### Grow the pair set by raising n_prompts
+
+*2026-10-03*
+
+- **Chose:** the samples cache is keyed on the whole ordered training split,
+  so a re-run with a larger `n_prompts` keeps every saved sample and only
+  samples the new prompts. A smaller `n_prompts` is refused.
+- **Over:** keying on the first `n_prompts` prompts, which forced a full
+  resample to grow the set.
+- **Why:** the full run is sized from measured throughput. Starting small
+  and extending wastes nothing. The saved samples are reused whole only
+  when the earlier `n_prompts * k` is a multiple of `batch_size`.
+  Otherwise the earlier run's last, partial batch is sampled again, so
+  that batches keep a fixed composition and seed.
+
 ### Drop the end-of-turn token from rejected samples that never stopped
 
 *2026-10-03*
