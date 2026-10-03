@@ -119,10 +119,14 @@ Needs the SFT and DPO runs in `outputs/`. Files: `src/post_training/eval/harness
 
 ## What we would do differently
 
-Add a correctness check before trusting a rubric gain: even a small set of
-hand-graded answers would have caught the algebra case. And build
-length-matched pairs, so the next DPO run can answer the question this one
-could not.
+- Add a correctness check, even a small hand-graded set. This follows from
+  the rubric passing a wrong answer (index 50) and having no judge
+  ([eval-results.md][res-limits]; [decisions.md][nojudge]).
+- Use length-matched pairs in the next DPO run. This follows from the length
+  check, which could not separate "no loops" from "shorter"
+  ([eval-results.md][res-short]).
+- Draw more finance prompts. This follows from the n = 24 finance slice,
+  where one row moves a rate by 4.2 points ([eval-results.md][res-limits]).
 
 [i3]: https://github.com/graylayer-labs/llm-post-training-lab/issues/3
 [i23]: https://github.com/graylayer-labs/llm-post-training-lab/issues/23

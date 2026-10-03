@@ -83,14 +83,15 @@ rejected side falling. Chosen barely moved. Under SFT a looping answer costs
 decoding loops: each repeat is close to certain. After DPO the rejected
 token costs -0.341; chosen went -2.250 to -2.286 ([dpo-results.md][dpo-len]).
 
-**A misreading, caught in review.** The summary's `logps_change` compares
-step 1 with step 18 and shows chosen *rising*, -279.884 to -212.707, and
-rejected falling, -45.897 to -102.188. Read alone, that says DPO raised the
-probability of the chosen answers. It did not. Steps 1 and 18 score
-different batches of pairs, so the chosen figure moved with the batch. The
-like-for-like measure is the same 10 held-out pairs before and after, and
-there chosen is flat to slightly down. The correct reading: chosen held
-steady and rejected fell ([dpo-results.md][dpo-misread]).
+**A misreading, caught by checking the saved file.** The lead's brief for
+the results doc said chosen log-probs "rose by 67". The summary's
+`logps_change` does show chosen -279.884 to -212.707 and rejected -45.897
+to -102.188. But steps 1 and 18 score different batches of pairs, so the
+chosen figure moved with the batch. The agent writing the doc checked the
+brief against `outputs/dpo/summary.json` and used the like-for-like
+measure instead: the same 10 held-out pairs before and after, where chosen
+is flat to slightly down. The correct reading: chosen held steady and
+rejected fell ([dpo-results.md][dpo-misread]).
 
 ### Memory
 
@@ -139,13 +140,17 @@ Both need the SFT run in `outputs/sft/`. Files: `src/post_training/train/pairs.p
 
 ## What we would do differently
 
-Build pairs whose chosen and rejected answers have similar lengths, so the
-length confound can be separated. And log `logps_change` on a fixed set of
-pairs, not on whichever batch lands at step 1 and step 18.
+- Build pairs whose chosen and rejected answers have similar lengths. This
+  follows from the length confound ([dpo-results.md][dpo-len], Limits;
+  [eval-results.md][res-short]).
+- Hold out more than 10 pairs, and from prompts SFT did not train on. This
+  follows from the small held-out set, which only shows fit
+  ([decisions.md][fit]).
 
 [i2]: https://github.com/graylayer-labs/llm-post-training-lab/issues/2
 [pr27]: https://github.com/graylayer-labs/llm-post-training-lab/pull/27
 [dpo]: ../dpo-results.md
+[res-short]: ../eval-results.md#is-it-just-shorter
 [dpo-counts]: ../dpo-results.md#counts
 [dpo-train]: ../dpo-results.md#training-results
 [dpo-held]: ../dpo-results.md#held-out-pairs-before-and-after
