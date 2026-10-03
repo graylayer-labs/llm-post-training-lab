@@ -31,10 +31,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import shutil
 import time
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -151,10 +152,90 @@ class SftReferenceDPOTrainer(DPOTrainer):
         return ds.map(strip_unstopped_end, fn_kwargs={"end_id": end})
 
 
+def plan_steps(cfg: DpoConfig, n_train: int) -> dict[str, int]:
+    """Optimiser steps, checkpoint interval and warmup for ``n_train`` pairs.
+
+    Steps are counted as the Trainer counts them: ceil(pairs / batch) micro-
+    batches, ceil(that / grad_accum) updates per epoch, times epochs. With
+    ``save_steps`` unset a checkpoint falls about every fifth of the run; a
+    value at or above the total is cut to half of it so two checkpoints
+    happen. Warmup is at least one step once the run has ten or more.
+    """
+    t = cfg.train
+    micro = math.ceil(n_train / t.batch_size)
+    per_epoch = max(1, math.ceil(micro / t.grad_accum))
+    total = math.ceil(per_epoch * t.epochs)
+    save = t.save_steps if t.save_steps is not None else max(1, round(total / 5))
+    if save >= total:
+        save = max(1, total // 2)
+    warmup = int(t.warmup_ratio * total)
+    if total >= 10:
+        warmup = max(1, warmup)
+    return {"total_steps": total, "save_steps": save, "warmup_steps": warmup}
+
+
+def truncation_counts(
+    ds: Iterable[dict[str, Any]], max_length: int, n_input: int
+) -> dict[str, int]:
+    """Pairs whose chosen or rejected completion is cut by ``max_length``.
+
+    TRL truncates prompt + completion from the end, so a cut chosen answer
+    loses its ``<|im_end|>``. Pairs whose prompt alone fills ``max_length``
+    are dropped by TRL before training.
+    """
+    rows = list(ds)
+    p = [len(r["prompt_ids"]) for r in rows]
+    return {
+        "pairs": len(rows),
+        "chosen_truncated": sum(
+            n + len(r["chosen_ids"]) > max_length for n, r in zip(p, rows, strict=True)
+        ),
+        "rejected_truncated": sum(
+            n + len(r["rejected_ids"]) > max_length
+            for n, r in zip(p, rows, strict=True)
+        ),
+        "dropped_prompt_too_long": n_input - len(rows),
+    }
+
+
+@torch.no_grad()
+def completion_stats(model: Any, batches: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Mean completion length and log-prob (summed and per token), per side.
+
+    Each DPO batch holds the chosen rows first, then the rejected rows. Rows
+    are scored one at a time to keep the full-vocabulary logits small.
+    """
+    was_training = model.training
+    model.eval()
+    sides: dict[str, list[tuple[float, int]]] = {"chosen": [], "rejected": []}
+    for batch in batches:
+        n = batch["input_ids"].shape[0]
+        for i in range(n):
+            ids = batch["input_ids"][i : i + 1]
+            logits = model(
+                input_ids=ids, attention_mask=batch["attention_mask"][i : i + 1]
+            ).logits[:, :-1]
+            lp = logits.float().log_softmax(-1).gather(-1, ids[:, 1:, None])
+            mask = batch["completion_mask"][i : i + 1, 1:].float()
+            side = "chosen" if i < n // 2 else "rejected"
+            sides[side].append(
+                ((lp.squeeze(-1) * mask).sum().item(), int(mask.sum().item()))
+            )
+    if was_training:
+        model.train()
+    out: dict[str, Any] = {}
+    for side, vals in sides.items():
+        k = len(vals) or 1
+        out[f"{side}_tokens_mean"] = sum(t for _, t in vals) / k
+        out[f"{side}_logp_sum_mean"] = sum(s for s, _ in vals) / k
+        out[f"{side}_logp_per_token_mean"] = sum(s / max(t, 1) for s, t in vals) / k
+    return out
+
+
 def build_dpo_args(cfg: DpoConfig, n_train: int, **overrides: Any) -> Any:
     """TRL DPOConfig for a run with ``n_train`` training pairs."""
     t = cfg.train
-    steps_per_epoch = max(1, n_train // (t.batch_size * t.grad_accum))
+    plan = plan_steps(cfg, n_train)
     kw: dict[str, Any] = {
         "output_dir": str(Path(cfg.output_dir) / "checkpoints"),
         "num_train_epochs": t.epochs,
@@ -163,12 +244,12 @@ def build_dpo_args(cfg: DpoConfig, n_train: int, **overrides: Any) -> Any:
         "per_device_eval_batch_size": t.batch_size,
         "gradient_accumulation_steps": t.grad_accum,
         "max_length": t.max_length,
-        "warmup_steps": int(t.warmup_ratio * steps_per_epoch * t.epochs),
+        "warmup_steps": plan["warmup_steps"],
         "lr_scheduler_type": "cosine",
         "logging_steps": t.logging_steps,
         "eval_strategy": "no",
         "save_strategy": "steps",
-        "save_steps": t.save_steps,
+        "save_steps": plan["save_steps"],
         "save_total_limit": t.save_total_limit,
         "bf16": bf16_supported(),
         "beta": t.beta,
@@ -216,7 +297,7 @@ def _trajectory(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _change(traj: list[dict[str, Any]], key: str) -> dict[str, float] | None:
     vals = [t[key] for t in traj if key in t]
-    if not vals:
+    if len(vals) < 2:
         return None
     return {"first": vals[0], "last": vals[-1], "delta": vals[-1] - vals[0]}
 
@@ -277,6 +358,8 @@ def run_dpo(
 
     model, tok = load_sft_merged(model_name, str(adapter))
     params_total = sum(p.numel() for p in model.parameters())
+    plan = plan_steps(cfg, len(train_pairs))
+    print(f"[dpo] {len(train_pairs)} train pairs: {plan}", flush=True)
     args = build_dpo_args(cfg, len(train_pairs))
     peak = PeakMemoryCallback()
     trainer = make_trainer(
@@ -291,20 +374,32 @@ def run_dpo(
     )
     peft_model: Any = trainer.model
     trainable = sum(p.numel() for p in peft_model.parameters() if p.requires_grad)
+    truncation = {
+        "max_length": t.max_length,
+        "train": truncation_counts(
+            trainer.train_dataset, t.max_length, len(train_pairs)
+        ),
+        "held_out": truncation_counts(trainer.eval_dataset, t.max_length, len(held)),
+    }
 
     t0 = time.time()
     before_file = out / "eval_before.json"
-    if resume and before_file.exists():
+    lengths_file = out / "held_out_lengths_before.json"
+    if resume and before_file.exists() and lengths_file.exists():
         eval_before = json.loads(before_file.read_text())
+        lengths_before = json.loads(lengths_file.read_text())
     else:
         eval_before = trainer.evaluate()
         before_file.write_text(json.dumps(eval_before, indent=1))
+        lengths_before = completion_stats(peft_model, trainer.get_eval_dataloader())
+        lengths_file.write_text(json.dumps(lengths_before, indent=1))
     resumed_at = datetime.now(UTC).isoformat(timespec="seconds")
     if resume:
         trainer.train(resume_from_checkpoint=str(last))
     else:
         trainer.train()
     eval_after = trainer.evaluate()
+    lengths_after = completion_stats(peft_model, trainer.get_eval_dataloader())
     peft_model.save_pretrained(out / "adapter")
     tok.save_pretrained(out / "adapter")
     # The LoRA only means something on merge(base, SFT adapter); record which,
@@ -345,6 +440,12 @@ def run_dpo(
         "eval_after": eval_after,
         "train_loss": train_loss_from_log(log),
         "global_step": trainer.state.global_step,
+        "total_steps": trainer.state.max_steps,
+        "steps_plan": plan,
+        "truncation": truncation,
+        # Same held-out pairs before and after: rejected samples are long
+        # rambles, so a "shorter wins" shortcut shows here first.
+        "held_out_lengths": {"before": lengths_before, "after": lengths_after},
         "trajectory": traj,
         "logps_change": {
             "chosen": _change(traj, "logps/chosen"),

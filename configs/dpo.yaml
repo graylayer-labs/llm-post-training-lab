@@ -15,15 +15,15 @@ lora:
 
 train:
   beta: 0.1              # strength of the pull towards the reference
-  epochs: 1
+  epochs: 3              # a few hundred pairs give few steps per epoch
   learning_rate: 5.0e-5
   batch_size: 2          # pairs per step; each is a chosen and a rejected pass
   grad_accum: 8          # effective batch 16 pairs
   max_length: 768        # prompt + answer; 384-token samples fit
-  warmup_ratio: 0.1
-  logging_steps: 5
+  warmup_ratio: 0.1      # at least 1 step once the run has 10 or more
+  logging_steps: 1       # every optimiser step, for the logps trajectory
   seed: 0                # also seeds the held-out split
   eval_fraction: 0.1     # held-out pairs for reward accuracy and margins
-  save_steps: 25
+  save_steps: null       # about 1/5 of the steps, from the pair count
   save_total_limit: 2
   keep_checkpoints: false

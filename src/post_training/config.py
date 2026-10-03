@@ -176,16 +176,18 @@ class DpoTrainSettings:
     """
 
     beta: float = 0.1
-    epochs: float = 1.0
+    epochs: float = 3.0
     learning_rate: float = 5e-5
     batch_size: int = 2
     grad_accum: int = 8
     max_length: int = 768
     warmup_ratio: float = 0.1
-    logging_steps: int = 5
+    logging_steps: int = 1
     seed: int = 0
     eval_fraction: float = 0.1
-    save_steps: int = 25
+    # None: about a fifth of the run's steps, worked out from the pair count.
+    # A value at or above the total is capped so that two checkpoints happen.
+    save_steps: int | None = None
     save_total_limit: int = 2
     keep_checkpoints: bool = False
 

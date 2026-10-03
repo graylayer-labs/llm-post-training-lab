@@ -204,6 +204,74 @@ def test_strip_end_of_turn_only_for_unstopped_rejected() -> None:
     assert dpo.strip_unstopped_end(ex, end)["rejected_ids"] == [5, 6, end, 9]
 
 
+def test_change_needs_two_points() -> None:
+    assert dpo._change([{"logps/chosen": -1.0}], "logps/chosen") is None
+    assert dpo._change([], "logps/chosen") is None
+    two = [{"logps/chosen": -1.0}, {"logps/chosen": -3.0}]
+    assert dpo._change(two, "logps/chosen") == {
+        "first": -1.0,
+        "last": -3.0,
+        "delta": -2.0,
+    }
+
+
+def test_dpo_train_defaults() -> None:
+    t = DpoTrainSettings()
+    assert (t.epochs, t.logging_steps, t.save_steps) == (3, 1, None)
+
+
+def _plan(n: int, **train: Any) -> dict[str, int]:
+    base: dict[str, Any] = {"batch_size": 2, "grad_accum": 8, "epochs": 3}
+    cfg = DpoConfig(output_dir="o", train=DpoTrainSettings(**{**base, **train}))
+    return dpo.plan_steps(cfg, n)
+
+
+def test_plan_counts_optimizer_steps_like_the_trainer() -> None:
+    # 100 pairs / batch 2 = 50 micro-batches; ceil(50 / 8) = 7 per epoch.
+    assert _plan(100)["total_steps"] == 21
+    assert _plan(100, epochs=1)["total_steps"] == 7
+
+
+def test_plan_saves_about_five_times_by_default() -> None:
+    assert _plan(100)["save_steps"] == 4  # round(21 / 5)
+    assert _plan(4, batch_size=1, grad_accum=1, epochs=1)["save_steps"] == 1
+
+
+def test_plan_caps_save_steps_so_two_checkpoints_happen() -> None:
+    assert _plan(100, save_steps=50)["save_steps"] == 10  # 21 // 2
+    assert _plan(100, save_steps=3)["save_steps"] == 3
+
+
+def test_plan_warms_up_at_least_one_step_on_ten_or_more() -> None:
+    assert _plan(100, warmup_ratio=0.01)["warmup_steps"] == 1
+    assert _plan(100, warmup_ratio=0.1)["warmup_steps"] == 2
+    small = _plan(8, batch_size=1, grad_accum=1, epochs=1, warmup_ratio=0.01)
+    assert small["warmup_steps"] == 0
+
+
+def test_dpo_args_use_the_plan(tmp_path: Path) -> None:
+    cfg = DpoConfig(output_dir=str(tmp_path))
+    args = dpo.build_dpo_args(cfg, 100)
+    plan = dpo.plan_steps(cfg, 100)
+    assert args.save_steps == plan["save_steps"]
+    assert args.warmup_steps == plan["warmup_steps"]
+    assert args.logging_steps == 1
+
+
+def test_truncation_counts() -> None:
+    rows = [
+        {"prompt_ids": [1] * 5, "chosen_ids": [2] * 5, "rejected_ids": [3] * 2},
+        {"prompt_ids": [1] * 5, "chosen_ids": [2] * 2, "rejected_ids": [3] * 9},
+        {"prompt_ids": [1] * 3, "chosen_ids": [2] * 2, "rejected_ids": [3] * 2},
+    ]
+    assert dpo.truncation_counts(rows, max_length=8, n_input=4) == {
+        "pairs": 3,
+        "chosen_truncated": 1,
+        "rejected_truncated": 1,
+        "dropped_prompt_too_long": 1,
+    }
+
+
 def test_reference_other_than_sft_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="sft"):
         dpo.run_dpo(DpoConfig(output_dir=str(tmp_path), reference="base"))
@@ -216,6 +284,10 @@ def test_shipped_dpo_configs_load(name: str) -> None:
     assert cfg.reference == "sft"
     assert cfg.lora.trainable_tokens == ()
     assert 0 < cfg.train.eval_fraction < 1
+    assert cfg.train.logging_steps == 1
+    if name == "dpo.yaml":
+        assert cfg.train.epochs == 3
+        assert cfg.train.save_steps is None  # worked out from the pair count
 
 
 def test_dpo_args_checkpoint_under_output_dir(tmp_path: Path) -> None:
@@ -332,6 +404,7 @@ def _write_inputs(
 
 def _cfg(root: Path, run: Path, pdir: Path, **train: Any) -> DpoConfig:
     t: dict[str, Any] = {
+        "epochs": 1,
         "batch_size": 1,
         "grad_accum": 1,
         "max_length": 64,
@@ -394,6 +467,29 @@ def test_tiny_run_records_reference_logps_and_held_out(
     assert not (out / "checkpoints").exists()
     saved = json.loads((out / "summary.json").read_text())
     assert saved["reference"]["model"] == "sft"
+    assert s["total_steps"] == 6
+    assert s["steps_plan"]["save_steps"] == 2
+    assert set(s["truncation"]) == {"max_length", "train", "held_out"}
+    assert s["truncation"]["train"]["pairs"] == 6
+
+
+def test_held_out_lengths_and_per_token_logps(
+    models: dict[str, Any], tmp_path: Path, cpu_run: None
+) -> None:
+    run, pdir = _write_inputs(tmp_path, models)
+    s = dpo.run_dpo(_cfg(tmp_path, run, pdir))
+    for when in ("before", "after"):
+        h = s["held_out_lengths"][when]
+        for side in ("chosen", "rejected"):
+            assert h[f"{side}_tokens_mean"] > 0
+            assert h[f"{side}_logp_per_token_mean"] < 0
+    before = s["held_out_lengths"]["before"]
+    # Same pairs, same model: the summed log-prob matches TRL's eval metric.
+    assert before["chosen_logp_sum_mean"] == pytest.approx(
+        s["eval_before"]["eval_logps/chosen"], abs=1e-2
+    )
+    # Rejected samples in _pair are longer than chosen ones.
+    assert before["rejected_tokens_mean"] > before["chosen_tokens_mean"]
 
 
 PROBE = torch.tensor([[1, 7, 8, 2, 1, 9, 10, 23, 24, 2]])
