@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llm-post-training-lab"
+version = "0.1.0"
+description = "Config-driven LoRA SFT, DPO and evaluation on a small open LLM"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "Eoin McAllister" }]
+dependencies = [
+    "accelerate>=1.0",
+    "anthropic>=0.40",
+    "datasets>=3.0",
+    "peft>=0.14",
+    "pyyaml>=6.0",
+    "rouge-score>=0.1.2",
+    "torch>=2.5",
+    "transformers>=4.48",
+    "trl>=0.15",
+]
+
+[project.scripts]
+lab = "post_training.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.11",
+    "ty>=0.0.1a16",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/post_training"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ty.environment]
+python-version = "3.12"

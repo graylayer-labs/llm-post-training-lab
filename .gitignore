@@ -1,0 +1,14 @@
+.DS_Store
+.idea/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ty_cache/
+__pycache__/
+*.py[cod]
+build/
+dist/
+/data
+outputs/
+.claude/worktrees/
+.env
