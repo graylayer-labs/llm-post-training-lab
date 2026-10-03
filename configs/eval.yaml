@@ -16,7 +16,7 @@ systems:          # a system whose adapter is missing is reported as skipped
 
 generation:       # greedy, identical for every system
   max_new_tokens: 384
-  batch_size: 1   # batched bf16 on MPS changes greedy outputs
+  batch_size: 16  # same for every system and recorded; matches the pairs run
   seed: 0
 
 perplexity:
