@@ -34,8 +34,9 @@ Two runs, both from commit `0263788` on `main`, clean tree, `scratch` false.
 - One seed (0) for each run. Small differences between runs are not
   evidence.
 - Both times were measured while another project's GPU jobs were running on
-  the same machine, so they are contended. Do not read them as the cost of
-  either stage.
+  the same machine, so they are contended. The lead saw those jobs in the
+  process list; the run files do not record them. Do not read the times as
+  the cost of either stage.
 - The pairs run was expected to take longer than this repo's one-hour limit
   for laptop runs (see "Ask the owner first" in `CLAUDE.md`). The owner
   agreed to it in the lead's session on 2026-10-03. Its generation took
