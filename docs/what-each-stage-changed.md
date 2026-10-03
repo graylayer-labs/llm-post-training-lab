@@ -134,9 +134,11 @@ nothing to pair; that was a scratch measurement, not saved
 ([decisions.md](decisions.md), "Draw rejected answers from greedy
 decoding").
 
-**Loops gone, every answer stops.** Stopped 86.5% to 100.0%; none of the
+**Looping cut, every answer stops.** Stopped 86.5% to 100.0%; none of the
 200 DPO answers reaches the limit, the longest is 375 tokens. `repetition`
-75.0% to 92.5%. Overall rubric 73.0% to 89.0%: DPO fixes 36 prompts and
+75.0% to 92.5%, so 15 of 200 DPO answers still repeat, and a short loop
+can stay under the rule's threshold (index 29, under "What it missed"
+below). Overall rubric 73.0% to 89.0%: DPO fixes 36 prompts and
 breaks 4 ([eval-results.md](eval-results.md), "DPO against SFT";
 `analysis.json`, `pairs."sft->dpo"`). On the held-out pairs, the rejected
 answers' per-token log-prob fell from −0.182 to −0.341, nearly double the

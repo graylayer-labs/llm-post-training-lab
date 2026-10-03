@@ -46,14 +46,15 @@ forward: SFT fixes [88](../eval-results.md#sft-against-base) prompts that
 base failed and breaks [12](../eval-results.md#sft-against-base), all of
 them now repetition loops.
 
-**DPO removed the loops.** The pairs came from SFT's own training prompts:
+**DPO cut looping.** The pairs came from SFT's own training prompts:
 chosen is the dataset's reference, rejected is SFT's greedy answer when the
 rubric fails it. Of [105](../dpo-results.md#counts) pairs,
 [104](../dpo-results.md#counts) were rejected for repetition. After
 [18](../dpo-results.md#training-results) optimiser steps, every DPO answer
 stops, [none](../eval-results.md#dpo-against-sft) reaches the limit, and the
 repetition pass rate rises from [75.0% to 92.5%](../eval-results.md#dpo-against-sft).
-DPO fixes [36](../eval-results.md#dpo-against-sft) prompts and breaks
+That still leaves 15 of 200 answers that repeat, and a short loop can stay
+under the rule's threshold (index 29 in eval-results.md). DPO fixes [36](../eval-results.md#dpo-against-sft) prompts and breaks
 [4](../eval-results.md#dpo-against-sft).
 
 **DPO also learned "shorter", and this run cannot separate the two.** The

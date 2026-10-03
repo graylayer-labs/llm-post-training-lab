@@ -18,8 +18,11 @@ the memory and 70B reasoning is [docs/memory-and-scale.md](docs/memory-and-scale
   the two chat-token embedding rows as well as the LoRA: LoRA alone could
   not reach the tied `<|im_end|>` row, and TRL's default loss skipped the
   fix.
-- **DPO on 105 home-made pairs removed the loops.** Every DPO answer stops,
-  the rubric pass rate rose from 73.0% to 89.0%, and the rejected loops'
+- **DPO on 105 home-made pairs cut looping.** Every DPO answer stops. The
+  `repetition` pass rate rose from 75.0% to 92.5%, but 15 of 200 answers
+  still fail it, and a short loop can stay under the rule's threshold
+  ([eval-results.md](docs/eval-results.md#dpo-against-sft), index 29). The
+  rubric pass rate rose from 73.0% to 89.0%, and the rejected loops'
   per-token log-prob nearly doubled in cost while the chosen answers barely
   moved.
 - **DPO also learned "shorter".** Mean answer length fell from 111.6 to
