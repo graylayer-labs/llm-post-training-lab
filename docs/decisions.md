@@ -117,6 +117,34 @@ yet.
 
 ## Project setup
 
+### Record each run's commit, tree state and library versions
+
+*2026-10-03*
+
+- **Chose:** every `summary.json` carries a `provenance` block: the commit,
+  whether the tree was dirty (untracked files count), the branch, the
+  machine and the torch, transformers, trl, peft and datasets versions. A run
+  from a dirty tree is marked `scratch`.
+- **Over:** trusting the commit message or the write-up to say which code
+  made a run.
+- **Why:** The Part 1 SFT run came from a dirty tree and recorded no commit,
+  so its numbers could not be traced. See #10.
+
+### Treat the generation batch size as a setting
+
+*2026-10-03*
+
+- **Chose:** batched, left-padded generation, with the batch size recorded
+  beside the other generation settings and held fixed when systems are
+  compared.
+- **Over:** assuming batched greedy decoding matches one prompt at a time.
+- **Why:** In bf16 on MPS, padding changes the numerics enough to flip
+  near-tied tokens. On the first 5 held-out prompts, batch size 1 reproduced
+  all 10 saved greedy answers exactly. Batch size 5 matched the 5 short
+  answers but diverged on 4 of the 5 that ran to the token limit, in one
+  case after 22 characters. Measured on 2026-10-03, not saved.
+
+
 ### Describe each run in a config file
 
 *2026-10-03*

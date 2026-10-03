@@ -17,6 +17,7 @@ from peft import LoraConfig
 
 from post_training.config import LoraSettings, SftConfig, to_dict
 from post_training.data.finance import Row, load_splits, to_messages
+from post_training.run import run_provenance
 from post_training.train.common import (
     PeakMemoryCallback,
     ReleaseCacheCallback,
@@ -90,6 +91,9 @@ def build_sft_args(cfg: SftConfig, n_train: int) -> Any:
 def run_sft(cfg: SftConfig) -> dict[str, Any]:
     from trl import SFTTrainer
 
+    # Capture first: the record must describe the code that ran, not the tree
+    # as it stands after training.
+    provenance = run_provenance()
     out = Path(cfg.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     splits = load_splits(
@@ -131,6 +135,7 @@ def run_sft(cfg: SftConfig) -> dict[str, Any]:
 
     summary = {
         "config": to_dict(cfg),
+        "provenance": provenance,
         "device": device_report(),
         "peak_memory_gb": round(peak.peak_gb, 2),
         "params_total": trainable_before,
