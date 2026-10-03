@@ -8,12 +8,15 @@ only turns a config into the objects it needs and records what happened.
 from __future__ import annotations
 
 import json
+import shutil
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from datasets import Dataset
 from peft import LoraConfig
+from transformers.trainer_utils import get_last_checkpoint
 
 from post_training.config import LoraSettings, SftConfig, to_dict
 from post_training.data.finance import Row, load_splits, to_messages
@@ -25,6 +28,10 @@ from post_training.train.common import (
     device_report,
     load_model_and_tokenizer,
 )
+
+
+class ResumeError(RuntimeError):
+    """A start or resume that would lose, overwrite or mix up a run."""
 
 
 def build_lora_config(
@@ -65,7 +72,7 @@ def build_sft_args(cfg: SftConfig, n_train: int) -> Any:
     steps_per_epoch = max(1, n_train // (cfg.train.batch_size * cfg.train.grad_accum))
     warmup_steps = int(cfg.train.warmup_ratio * steps_per_epoch * cfg.train.epochs)
     return SFTConfig(
-        output_dir=cfg.output_dir,
+        output_dir=str(Path(cfg.output_dir) / "checkpoints"),
         num_train_epochs=cfg.train.epochs,
         learning_rate=cfg.train.learning_rate,
         per_device_train_batch_size=cfg.train.batch_size,
@@ -76,7 +83,9 @@ def build_sft_args(cfg: SftConfig, n_train: int) -> Any:
         lr_scheduler_type="cosine",
         logging_steps=cfg.train.logging_steps,
         eval_strategy="epoch",
-        save_strategy="no",
+        save_strategy="steps",
+        save_steps=cfg.train.save_steps,
+        save_total_limit=cfg.train.save_total_limit,
         bf16=bf16_supported(),
         completion_only_loss=True,
         # TRL's default "chunked_nll" multiplies hidden states by lm_head.weight
@@ -88,14 +97,52 @@ def build_sft_args(cfg: SftConfig, n_train: int) -> Any:
     )
 
 
-def run_sft(cfg: SftConfig) -> dict[str, Any]:
+def _check_resume(out: Path, current: dict[str, Any], scratch: bool) -> dict[str, Any]:
+    """Original provenance of the run in ``out``, or an error if code differs."""
+    saved = out / "provenance.json"
+    if not saved.exists():
+        if scratch:
+            return current
+        raise ResumeError(f"{saved} is missing; cannot tell which commit started it")
+    original = json.loads(saved.read_text())
+    problems = []
+    if current["commit"] != original["commit"]:
+        problems.append(
+            f"commit is {current['commit']}, run started at {original['commit']}"
+        )
+    if current["dirty"]:
+        problems.append("working tree is dirty")
+    if problems and not scratch:
+        raise ResumeError(
+            "; ".join(problems) + ". A resumed run must be one commit's code; "
+            "check out the original commit or pass --scratch."
+        )
+    return original
+
+
+def run_sft(
+    cfg: SftConfig, resume: bool = False, scratch: bool = False
+) -> dict[str, Any]:
     from trl import SFTTrainer
+
+    out = Path(cfg.output_dir)
+    ckpt_dir = out / "checkpoints"
+    last = get_last_checkpoint(str(ckpt_dir)) if ckpt_dir.is_dir() else None
+    if last and not resume:
+        raise ResumeError(
+            f"{ckpt_dir} already holds checkpoints; pass --resume to continue "
+            "that run or use a new output_dir. Nothing was changed."
+        )
+    if resume and not last:
+        raise ResumeError(f"--resume given but no checkpoint under {ckpt_dir}")
 
     # Capture first: the record must describe the code that ran, not the tree
     # as it stands after training.
-    provenance = run_provenance()
-    out = Path(cfg.output_dir)
+    current = run_provenance()
+    provenance = _check_resume(out, current, scratch) if resume else current
     out.mkdir(parents=True, exist_ok=True)
+    if not resume:
+        (out / "provenance.json").write_text(json.dumps(provenance, indent=1))
     splits = load_splits(
         cfg.data.dataset,
         train_size=cfg.data.train_size,
@@ -127,8 +174,17 @@ def run_sft(cfg: SftConfig) -> dict[str, Any]:
     trainable = sum(p.numel() for p in peft_model.parameters() if p.requires_grad)
 
     t0 = time.time()
-    eval_before = trainer.evaluate()
-    train_result = trainer.train()
+    before_file = out / "eval_before.json"
+    if resume and before_file.exists():
+        eval_before = json.loads(before_file.read_text())
+    else:
+        eval_before = trainer.evaluate()
+        before_file.write_text(json.dumps(eval_before, indent=1))
+    resumed_at = datetime.now(UTC).isoformat(timespec="seconds")
+    if resume:
+        train_result = trainer.train(resume_from_checkpoint=last)
+    else:
+        train_result = trainer.train()
     eval_after = trainer.evaluate()
     peft_model.save_pretrained(out / "adapter")
     tok.save_pretrained(out / "adapter")
@@ -148,5 +204,14 @@ def run_sft(cfg: SftConfig) -> dict[str, Any]:
         "wall_seconds": round(time.time() - t0, 1),
         "log_history": trainer.state.log_history,
     }
+    if resume:
+        summary["resumed_from"] = int(Path(str(last)).name.split("-")[-1])
+        summary["resumed_at"] = resumed_at
+        summary["resume_provenance"] = current
+        # Timing, peak memory and train_loss cover only the resumed part; the
+        # time before the crash was not recorded and is not guessed.
+        summary["resumed_segment_only"] = True
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
+    if not cfg.train.keep_checkpoints:
+        shutil.rmtree(ckpt_dir, ignore_errors=True)
     return summary
