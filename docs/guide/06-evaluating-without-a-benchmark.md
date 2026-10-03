@@ -64,7 +64,7 @@ generations can test part of it, with `tools/compare_systems.py` at commit
 - 48 DPO answers are under 20 tokens, against 27 for SFT.
 - DPO passes 20 of the 27 prompts where SFT never stopped.
 
-So part of DPO's gain is "shorter", not only "no loops". The doc says this
+So part of DPO's gain is "shorter", not only "fewer loops". The doc says this
 cannot be separated with these pairs; that needs pairs of similar length.
 
 ### What the rubric missed

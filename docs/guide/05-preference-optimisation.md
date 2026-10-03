@@ -83,9 +83,9 @@ rejected side falling. Chosen barely moved. Under SFT a looping answer costs
 decoding loops: each repeat is close to certain. After DPO the rejected
 token costs -0.341; chosen went -2.250 to -2.286 ([dpo-results.md][dpo-len]).
 
-**A misreading, caught by checking the saved file.** The lead's brief for
-the results doc said chosen log-probs "rose by 67". The summary's
-`logps_change` does show chosen -279.884 to -212.707 and rejected -45.897
+**A misreading, caught by checking the saved file.** The lead Claude Code
+session's brief for the results doc said chosen log-probs "rose by 67".
+The summary's `logps_change` does show chosen -279.884 to -212.707 and rejected -45.897
 to -102.188. But steps 1 and 18 score different batches of pairs, so the
 chosen figure moved with the batch. The agent writing the doc checked the
 brief against `outputs/dpo/summary.json` and used the like-for-like

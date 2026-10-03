@@ -12,14 +12,17 @@ One run per stage, one seed, `Qwen/Qwen2.5-0.5B` on an Apple M4 with 24 GB.
 The write-up is [docs/what-each-stage-changed.md](docs/what-each-stage-changed.md);
 the memory and 70B reasoning is [docs/memory-and-scale.md](docs/memory-and-scale.md).
 
-- **SFT taught the model to stop and to answer in the data's style.** On 200
-  held-out prompts the base model stops on 39.5% and SFT on 86.5%; ROUGE-L
-  against the references nearly doubled, 0.153 to 0.297. It took training
+- **SFT taught the model to stop, and moved its answers closer to the
+  reference answers (ROUGE-L 0.153 → 0.297).** On 200 held-out prompts the
+  base model stops on 39.5% and SFT on 86.5%. It took training
   the two chat-token embedding rows as well as the LoRA: LoRA alone could
   not reach the tied `<|im_end|>` row, and TRL's default loss skipped the
   fix.
-- **DPO on 105 home-made pairs removed the loops.** Every DPO answer stops,
-  the rubric pass rate rose from 73.0% to 89.0%, and the rejected loops'
+- **DPO on 105 home-made pairs cut looping.** Every DPO answer stops. The
+  `repetition` pass rate rose from 75.0% to 92.5%, but 15 of 200 answers
+  still fail it, and a short loop can stay under the rule's threshold
+  ([eval-results.md](docs/eval-results.md#dpo-against-sft), index 29). The
+  rubric pass rate rose from 73.0% to 89.0%, and the rejected loops'
   per-token log-prob nearly doubled in cost while the chosen answers barely
   moved.
 - **DPO also learned "shorter".** Mean answer length fell from 111.6 to
@@ -34,7 +37,8 @@ the memory and 70B reasoning is [docs/memory-and-scale.md](docs/memory-and-scale
 - **On a 0.5B model the memory is not the weights.** SFT peaked at 8.10 GiB
   and DPO at 13.19 GiB; the bf16 weights are 0.92 GiB. The rest is
   activations, the 152k-wide logits and the MPS allocator's cache, which
-  leaked until it was emptied every step.
+  retained blocks across changing sequence lengths and grew until it was
+  emptied every step.
 - **At 70B the picture inverts.** Full fine-tuning needs 1.12 TB of state,
   sharded across every GPU and node. LoRA removes the optimiser state and
   keeps the traffic inside a node, at about 36 GB per GPU. That section is
@@ -56,7 +60,7 @@ That raises three questions this project works through by hand:
 
 ```mermaid
 flowchart LR
-    A["Qwen2.5-0.5B<br/>base"] --> B["LoRA SFT<br/>finance Q&A"]
+    A["Qwen2.5-0.5B<br/>base"] --> B["LoRA SFT<br/>finance-alpaca"]
     B --> C["DPO<br/>own preference pairs"]
     A --> D["Evaluation<br/>same 200 held-out prompts"]
     B --> D
@@ -65,7 +69,10 @@ flowchart LR
 
 1. **Base model.** `Qwen/Qwen2.5-0.5B`, the base checkpoint, not Instruct.
 2. **LoRA SFT** on 2,000 rows of `gbharti/finance-alpaca`. The loss covers the
-   answer only.
+   answer only. After de-duplication the data is mostly general
+   instructions: 283 of the 2,200 training and held-out references (12.9%)
+   are finance
+   ([docs/decisions.md](docs/decisions.md#class-finance-rows-by-the-prompt-and-match-figures-as-value-sets)).
 3. **DPO** on preference pairs built from the project's own data, with the SFT
    model as reference.
 4. **Evaluation** of base, SFT and DPO on the same 200 held-out prompts:
@@ -206,6 +213,30 @@ outputs/, data/     run outputs and data, gitignored
   the reason.
 - [INTENT.md](INTENT.md): purpose, standard and how decisions get made.
 - [CLAUDE.md](CLAUDE.md): how agents work in this repo.
+
+## How this was built
+
+- The owner set the goal and the standards ([INTENT.md](INTENT.md)) and
+  made the research decisions recorded on the issues, such as the DPO
+  rejection rule and greedy pairs ([#2](https://github.com/graylayer-labs/llm-post-training-lab/issues/2))
+  and dropping the paid judge ([#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3)).
+- A lead Claude Code session planned the work on the GitHub board and
+  delegated to Claude agents in separate git worktrees: implementers,
+  read-only reviewers, a guide writer, and a GitHub agent that pushes and
+  merges. The process is written down in [CLAUDE.md](CLAUDE.md) and
+  [.claude/](.claude/).
+- Every change under `src/` got a read-only reviewer agent's pass before
+  merge; docs, configs and analysis tools were read by the lead session.
+  Reviews caught real bugs: a wrong train loss after resume
+  ([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21)),
+  and the eval loading DPO on the wrong base and a scratch resume marked
+  quotable ([PR #27](https://github.com/graylayer-labs/llm-post-training-lab/pull/27)).
+- Agent incidents are reported like any other failure: an agent's pattern
+  `pkill -f` that killed a training run
+  ([sft-results.md](docs/sft-results.md#failures-on-the-way)), and a
+  misreading of DPO log-probs in the lead's brief, caught against the saved
+  file ([what-each-stage-changed.md](docs/what-each-stage-changed.md#what-broke-along-the-way)).
+- Cost stayed inside a Claude subscription: no API calls, no cloud.
 
 ## Licence
 

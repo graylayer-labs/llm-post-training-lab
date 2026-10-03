@@ -55,8 +55,9 @@ measured but not saved; use 37.1%.
 ## 4. The killed run, checkpoints and resume (#21)
 
 The first attempt at the clean re-run was killed at step 18 of 125 by
-another agent's `pkill -f`, which matched its process. Nothing had been
-saved, so it restarted from step 0. The log is
+another agent's `pkill -f`, which matched its process (the Claude agents
+and how they worked are in the README, ["How this was built"][built]).
+Nothing had been saved, so it restarted from step 0. The log is
 `outputs/failed/sft-killed-step18/run.log` ([sft-results.md][res]). That led
 to a machine-wide guard against pattern kills and to checkpointing
 ([issue #21][i21]).
@@ -122,6 +123,7 @@ Start with provenance and checkpoints. Three of the fixes in this chapter
 (provenance, de-dup, resume) came from a review or a failure, not from
 planning. The cost was a Part 1 run that now stands only as history.
 
+[built]: ../../README.md#how-this-was-built
 [i10]: https://github.com/graylayer-labs/llm-post-training-lab/issues/10
 [i11]: https://github.com/graylayer-labs/llm-post-training-lab/issues/11
 [i21]: https://github.com/graylayer-labs/llm-post-training-lab/issues/21

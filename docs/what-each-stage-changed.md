@@ -55,8 +55,10 @@ per-rule rates are in eval-results.md.
 ## What SFT changed
 
 SFT was a LoRA (r=16, all seven projections) on 2,000 rows of
-`gbharti/finance-alpaca`, with the prompt masked from the loss and the two
-chat-token embedding rows trained in full. One epoch, 125 steps. Eval loss
+`gbharti/finance-alpaca` (despite the name, mostly general instructions
+after de-duplication: 12.9% of references are finance; see Limits), with
+the prompt masked from the loss and the two chat-token embedding rows
+trained in full. One epoch, 125 steps. Eval loss
 on the 200 held-out answers fell from 2.169 to 1.714
 ([sft-results.md](sft-results.md), Runs table, `outputs/sft/summary.json`,
 commit `76739e6`).
@@ -70,11 +72,11 @@ it stops on 86.5% and 27 answers hit the limit
 `b872427`). Mean new tokens fell from 270.0 to 111.6, the median from 384
 to 66.
 
-**Register.** The finance answers take on the first-person forum style of
-the training data ("I would not do that. I would put the money in a savings
-account..."). That is from the Part 1 samples
-([sft-results.md](sft-results.md), "Base vs SFT answers"), which came from
-a dirty tree, so they illustrate and are not quoted as results.
+**Register (illustrative Part 1 samples).** In the Part 1 samples, the
+finance answers take on the first-person forum style of the training data
+("I would not do that. I would put the money in a savings account...")
+([sft-results.md](sft-results.md), "Base vs SFT answers"). Those samples
+came from a dirty tree, so they illustrate and are not quoted as results.
 
 **Closer to the references.** ROUGE-L 0.153 to 0.297, nearly double.
 Perplexity of the references 8.910 to 6.245. On the 69 prompts where both
@@ -134,9 +136,11 @@ nothing to pair; that was a scratch measurement, not saved
 ([decisions.md](decisions.md), "Draw rejected answers from greedy
 decoding").
 
-**Loops gone, every answer stops.** Stopped 86.5% to 100.0%; none of the
+**Looping cut, every answer stops.** Stopped 86.5% to 100.0%; none of the
 200 DPO answers reaches the limit, the longest is 375 tokens. `repetition`
-75.0% to 92.5%. Overall rubric 73.0% to 89.0%: DPO fixes 36 prompts and
+75.0% to 92.5%, so 15 of 200 DPO answers still repeat, and a short loop
+can stay under the rule's threshold (index 29, under "What it missed"
+below). Overall rubric 73.0% to 89.0%: DPO fixes 36 prompts and
 breaks 4 ([eval-results.md](eval-results.md), "DPO against SFT";
 `analysis.json`, `pairs."sft->dpo"`). On the held-out pairs, the rejected
 answers' per-token log-prob fell from −0.182 to −0.341, nearly double the
@@ -182,13 +186,13 @@ Each item links the section that holds the detail.
   `chunked_nll` loss silently skipped the fix. Found from 0 of 5 samples
   stopping; fixed by training the two token rows and using `nll`.
   [sft-results.md, "The stop-token bug"](sft-results.md#the-stop-token-bug).
-- **The MPS allocator leak and out-of-memory.** The `nll` loss holds the full
+- **MPS cache retention and out-of-memory.** The `nll` loss holds the full
   batch × sequence × 152k logits, and each batch has a new sequence length,
   so the MPS caching allocator kept old blocks. At micro-batch 2 the run
   died with 2.84 GiB of tensors and 27.34 GiB held by the driver, against a
   30.19 GiB limit. Halving the batch did not help. Fixed by
   `torch.mps.empty_cache()` after every optimiser step.
-  [sft-results.md, "Out of memory, then a cache leak"](sft-results.md#out-of-memory-then-a-cache-leak).
+  [sft-results.md, "Out of memory, then cache retention"](sft-results.md#out-of-memory-then-cache-retention).
 - **Duplicated prompts and train/eval overlap.** finance-alpaca repeats
   prompts: 7,587 of the 55,835 rows that pass the length filter are
   duplicates, and 4 of the Part 1 run's 200 held-out prompts were also
@@ -198,8 +202,10 @@ Each item links the section that holds the detail.
   [decisions.md, "De-duplicate prompts before splitting"](decisions.md#de-duplicate-prompts-before-splitting);
   [sft-results.md, "How these numbers were made"](sft-results.md#how-these-numbers-were-made).
 - **The killed run, checkpointing and the resumed-loss bug.** The first SFT
-  re-run was killed at step 18 of 125 by another agent's `pkill -f`.
-  Nothing had been saved. That led to checkpoints every 25 steps and
+  re-run was killed at step 18 of 125 by another agent's `pkill -f` (the
+  Claude agents and how they worked are in the README,
+  ["How this was built"](../README.md#how-this-was-built)). Nothing had
+  been saved. That led to checkpoints every 25 steps and
   `lab sft --resume`, which refuses a resume from a different commit or
   config. The Trainer's own `training_loss` is wrong after a resume (its
   running total restarts at 0 but is divided by the full step count: 3.380
@@ -228,9 +234,9 @@ Each item links the section that holds the detail.
   [decisions.md, "Treat the generation batch size as a setting"](decisions.md#treat-the-generation-batch-size-as-a-setting).
 - **A misreading, caught by checking the saved file.** The DPO summary's
   `logps_change` compares step 1 with step 18 and shows the chosen log-prob
-  rising by +67.178 (−279.884 to −212.707). The lead read that as DPO
-  raising the chosen answers, and wrote it into the brief for the results
-  doc; the agent writing the doc checked it against the summary and
+  rising by +67.178 (−279.884 to −212.707). The lead Claude Code session
+  read that as DPO raising the chosen answers, and wrote it into the brief
+  for the results doc; the agent writing the doc checked it against the summary and
   corrected it. It is mostly a change of batch: steps 1 and 18 score
   different pairs. The like-for-like held-out pairs show chosen roughly
   flat, slightly down (−281.671 to −286.481), while rejected fell by 59.24

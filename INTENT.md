@@ -53,8 +53,10 @@ Work that produces neither is out of scope.
    masked from the loss.
 2. **DPO:** preference optimisation on pairs built from the project's own
    data, since real users rarely have preference data.
-3. **Evaluation:** loss-based metrics, a rule-based rubric and a model judge,
-   on the same held-out prompts for every stage.
+3. **Evaluation:** loss-based metrics and a rule-based rubric on the same
+   held-out prompts for every stage, plus a blind correctness check by model
+   graders run inside the existing subscription (a paid API judge was
+   dropped by the owner on 2026-10-03 to keep costs inside it).
 4. **Write-up:** what each stage changed, the memory breakdown, and what would
    differ at much larger scale.
 
