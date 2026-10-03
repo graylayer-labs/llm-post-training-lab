@@ -20,20 +20,17 @@ from peft import LoraConfig
 from post_training.config import LoraSettings, SftConfig, to_dict
 from post_training.data.finance import Row, load_splits, to_messages
 from post_training.run import run_provenance
+from post_training.train.checkpoint import ResumeError, check_resume, plan_start
 from post_training.train.common import (
     PeakMemoryCallback,
     ReleaseCacheCallback,
     bf16_supported,
-    checkpoint_dirs,
     device_report,
-    last_complete_checkpoint,
     load_model_and_tokenizer,
     train_loss_from_log,
 )
 
-
-class ResumeError(RuntimeError):
-    """A start or resume that would lose, overwrite or mix up a run."""
+__all__ = ["ResumeError", "run_sft"]
 
 
 def build_lora_config(
@@ -109,45 +106,6 @@ RESUME_NOTE = (
 )
 
 
-def _check_resume(
-    out: Path, current: dict[str, Any], cfg: SftConfig, scratch: bool
-) -> tuple[dict[str, Any], bool]:
-    """Original provenance of the run in ``out`` and whether it was missing.
-
-    Raises ResumeError if the code, tree or config differ from the original
-    run, unless ``scratch``.
-    """
-    problems = []
-    saved = out / "provenance.json"
-    missing = not saved.exists()
-    original = current if missing else json.loads(saved.read_text())
-    if missing:
-        problems.append(f"{saved} is missing; cannot tell which commit started it")
-    elif current["commit"] != original["commit"]:
-        problems.append(
-            f"commit is {current['commit']}, run started at {original['commit']}"
-        )
-    if current["dirty"]:
-        problems.append("working tree is dirty")
-    elif current["scratch"]:
-        problems.append(f"this checkout is scratch ({current['scratch_reason']})")
-    saved_cfg = out / "config.json"
-    if not saved_cfg.exists():
-        problems.append(f"{saved_cfg} is missing; cannot check the config")
-    elif json.loads(saved_cfg.read_text()) != json.loads(json.dumps(to_dict(cfg))):
-        problems.append("config differs from the one the run started with")
-    if problems and not scratch:
-        raise ResumeError(
-            "; ".join(problems) + ". A resumed run must be one commit's code "
-            "and one config; fix the above or pass --scratch."
-        )
-    if problems:
-        # Forced through with --scratch: the run mixes code, trees or configs,
-        # so it must not read as quotable.
-        original = {**original, "scratch": True, "scratch_reason": "; ".join(problems)}
-    return original, missing
-
-
 def run_sft(
     cfg: SftConfig, resume: bool = False, scratch: bool = False
 ) -> dict[str, Any]:
@@ -155,17 +113,7 @@ def run_sft(
 
     out = Path(cfg.output_dir)
     ckpt_dir = out / "checkpoints"
-    if checkpoint_dirs(ckpt_dir) and not resume:
-        raise ResumeError(
-            f"{ckpt_dir} already holds checkpoints; pass --resume to continue "
-            "that run or use a new output_dir. Nothing was changed."
-        )
-    last = last_complete_checkpoint(ckpt_dir)
-    if resume and last is None:
-        raise ResumeError(
-            f"--resume given but no complete checkpoint (one with "
-            f"trainer_state.json) under {ckpt_dir}"
-        )
+    last = plan_start(out, resume)
 
     # Capture first: the record must describe the code that ran, not the tree
     # as it stands after training.
@@ -173,7 +121,7 @@ def run_sft(
     prov_missing = False
     provenance = current
     if resume:
-        provenance, prov_missing = _check_resume(out, current, cfg, scratch)
+        provenance, prov_missing = check_resume(out, current, to_dict(cfg), scratch)
     out.mkdir(parents=True, exist_ok=True)
     if not resume:
         (out / "provenance.json").write_text(json.dumps(provenance, indent=1))

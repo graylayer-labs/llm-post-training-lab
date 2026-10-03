@@ -1,8 +1,7 @@
 """Start and resume checks for a checkpointed training run.
 
-The same rules as SFT's (#21, ``train/sft.py``), with the config passed as a
-plain dict so any stage can use them. SFT still has its own copy, typed to
-``SftConfig``; the two can merge in a later refactor.
+The one copy of these rules, used by SFT (#21) and DPO. The config is passed
+as a plain dict so any stage can use them.
 
 A run keeps ``provenance.json`` and ``config.json`` from its first start. A
 resume must use the same commit, a clean tree and the same config, unless the
@@ -18,7 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from post_training.train.common import checkpoint_dirs, last_complete_checkpoint
-from post_training.train.sft import ResumeError
+
+
+class ResumeError(RuntimeError):
+    """A start or resume that would lose, overwrite or mix up a run."""
+
 
 RESUME_NOTE = (
     "The Trainer restores optimizer, scheduler and data order on resume, but "
@@ -56,7 +59,8 @@ def check_resume(
     """Original provenance of the run in ``out`` and whether it was missing.
 
     Raises ResumeError if the code, tree or config differ from the original
-    run, unless ``scratch``.
+    run, unless ``scratch``. A resume forced through with ``scratch`` is
+    marked ``scratch``, with the problems as its ``scratch_reason``.
     """
     problems = []
     saved = out / "provenance.json"
@@ -82,4 +86,8 @@ def check_resume(
             "; ".join(problems) + ". A resumed run must be one commit's code "
             "and one config; fix the above or pass --scratch."
         )
+    if problems:
+        # Forced through with --scratch: the run mixes code, trees or configs,
+        # so it must not read as quotable.
+        original = {**original, "scratch": True, "scratch_reason": "; ".join(problems)}
     return original, missing

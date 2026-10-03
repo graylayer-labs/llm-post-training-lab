@@ -480,6 +480,43 @@ def test_resume_without_complete_checkpoint_is_an_error(tmp_path: Path) -> None:
         dpo.run_dpo(cfg, resume=True)
 
 
+def test_check_resume_with_scratch_marks_the_run_scratch(tmp_path: Path) -> None:
+    from post_training.train.checkpoint import check_resume
+
+    cfg = DpoConfig(output_dir=str(tmp_path))
+    _fake_checkpoint(tmp_path, 4, cfg)
+    current = {**PROV, "commit": "bbb"}
+    original, missing = check_resume(tmp_path, current, to_dict(cfg), scratch=True)
+    assert missing is False
+    assert original["commit"] == "aaa"
+    assert original["scratch"] is True
+    assert "commit is bbb" in original["scratch_reason"]
+
+
+def test_scratch_resume_of_a_dpo_run_is_marked_scratch(
+    models: dict[str, Any],
+    tmp_path: Path,
+    cpu_run: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run, pdir = _write_inputs(tmp_path, models)
+    cfg = _cfg(tmp_path, run, pdir)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        dpo.run_dpo(cfg, extra_callbacks=[Crash(at=3)])
+    monkeypatch.setattr(dpo, "run_provenance", lambda: {**PROV, "commit": "bbb"})
+    s = dpo.run_dpo(cfg, resume=True, scratch=True)
+    assert s["provenance"]["scratch"] is True
+    assert "commit is bbb" in s["provenance"]["scratch_reason"]
+    assert s["resume_provenance"]["commit"] == "bbb"
+
+
+def test_sft_and_dpo_share_one_resume_implementation() -> None:
+    from post_training.train import checkpoint, sft
+
+    assert sft.ResumeError is checkpoint.ResumeError
+    assert not hasattr(sft, "_check_resume")
+
+
 # --- CLI ----------------------------------------------------------------------
 
 
