@@ -118,3 +118,75 @@ def test_sampling_is_seeded() -> None:
     a = generate(model, tok, PROMPTS, 6, 2, do_sample=True, top_p=0.9, seed=7)
     b = generate(model, tok, PROMPTS, 6, 2, do_sample=True, top_p=0.9, seed=7)
     assert a == b
+
+
+def test_early_stop_in_batch_matches_raw_generate_per_prompt() -> None:
+    """One row stops early while others continue; pad == eos as in Qwen."""
+    model = _model()
+    base = StubTok()
+    # Pick a stop token that the first prompt emits within its first 3 tokens
+    # but the others do not emit in the same window.
+    raw: list[list[int]] = []
+    for m in PROMPTS:
+        enc = base(["".join(x["content"] for x in m)])
+        out = model.generate(**enc, max_new_tokens=8, do_sample=False)
+        raw.append(out[0, enc["input_ids"].shape[1] :].tolist())
+    stop_id = raw[0][1]
+
+    tok = StubTok()
+    tok.eos_token_id = stop_id
+    tok.pad_token_id = stop_id  # pad == eos, as with the real tokenizer
+    stops = [IM_END, EOT, stop_id]
+
+    expected = []
+    for m in PROMPTS:
+        t = StubTok()
+        enc = t(["".join(x["content"] for x in m)])  # single prompt: no padding
+        out = model.generate(
+            **enc,
+            max_new_tokens=8,
+            do_sample=False,
+            eos_token_id=stops,
+            pad_token_id=stop_id,
+        )
+        new = out[0, enc["input_ids"].shape[1] :].tolist()
+        n = next((i + 1 for i, x in enumerate(new) if x in stops), len(new))
+        expected.append(n)
+
+    got = generate(model, tok, PROMPTS, max_new_tokens=8, batch_size=3)
+    assert [r["new_tokens"] for r in got] == expected
+    assert got[0]["new_tokens"] <= 2  # the early-stopping row
+    assert max(expected) > got[0]["new_tokens"]  # the others continued
+
+
+def test_settings_are_exposed_and_sampling_is_explicit() -> None:
+    settings: dict[str, Any] = {}
+    generate(
+        _model(),
+        StubTok(),
+        PROMPTS[:1],
+        3,
+        1,
+        do_sample=True,
+        temperature=0.7,
+        top_p=0.9,
+        top_k=5,
+        seed=3,
+        settings_out=settings,
+    )
+    assert settings["do_sample"] is True
+    assert settings["temperature"] == 0.7
+    assert settings["top_p"] == 0.9
+    assert settings["top_k"] == 5
+    assert settings["repetition_penalty"] == 1.0
+    assert settings["seed"] == 3
+    assert settings["max_new_tokens"] == 3
+    assert settings["batch_size"] == 1
+    assert settings["stop_token_ids"] == [IM_END, EOT]
+
+
+def test_greedy_settings_omit_sampling_knobs() -> None:
+    settings: dict[str, Any] = {}
+    generate(_model(), StubTok(), PROMPTS[:1], 2, 1, settings_out=settings)
+    assert settings["do_sample"] is False
+    assert "temperature" not in settings

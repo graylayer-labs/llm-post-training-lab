@@ -54,14 +54,19 @@ def generate(
     do_sample: bool = False,
     temperature: float = 1.0,
     top_p: float = 1.0,
+    top_k: int = 0,
     seed: int = 0,
+    settings_out: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Generate one reply per prompt, in input order.
 
     Each result is ``{text, new_tokens, stopped}``. ``new_tokens`` counts the
     generated tokens up to and including the first stop token, never padding.
     Sampling is seeded per batch (``seed + batch index``), so a run is
-    reproducible for a fixed batch size.
+    reproducible for a fixed batch size. The seed goes through the global
+    ``torch.manual_seed``: this transformers version's ``generate`` takes no
+    ``generator`` argument. ``top_k=0`` turns top-k off. If ``settings_out`` is
+    given it is filled with every setting used, for the caller to record.
     """
     stop = stop_token_ids(tok)
     texts = [
@@ -69,10 +74,24 @@ def generate(
         for m in messages
     ]
     sampling: dict[str, Any] = (
-        {"do_sample": True, "temperature": temperature, "top_p": top_p}
+        {
+            "do_sample": True,
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "repetition_penalty": 1.0,
+        }
         if do_sample
         else {"do_sample": False}
     )
+    if settings_out is not None:
+        settings_out.update(
+            sampling,
+            max_new_tokens=max_new_tokens,
+            batch_size=batch_size,
+            seed=seed,
+            stop_token_ids=stop,
+        )
     results: list[dict[str, Any]] = []
     old_side = tok.padding_side
     tok.padding_side = "left"

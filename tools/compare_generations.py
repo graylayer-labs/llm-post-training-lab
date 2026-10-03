@@ -29,11 +29,12 @@ def main() -> None:
     p.add_argument("-n", type=int, default=5)
     p.add_argument("--model", default="Qwen/Qwen2.5-0.5B")
     p.add_argument("--max-new-tokens", type=int, default=256)
-    p.add_argument("--batch-size", type=int, default=4)
+    p.add_argument("--batch-size", type=int, default=1)
     a = p.parse_args()
 
     rows = json.loads((a.run_dir / "eval_rows.json").read_text())[: a.n]
     results: list[dict[str, Any]] = [{"instruction": r["instruction"]} for r in rows]
+    settings: dict[str, Any] = {}
     for name, adapter in (("base", None), ("sft", str(a.run_dir / "adapter"))):
         model, tok = load_model_and_tokenizer(a.model, adapter=adapter)
         model.eval()
@@ -43,11 +44,13 @@ def main() -> None:
             [prompt_messages(r) for r in rows],
             a.max_new_tokens,
             a.batch_size,
+            settings_out=settings,
         )
         for res, out in zip(results, outs, strict=True):
             res[name] = out
         del model
 
+    print(f"generation settings: {json.dumps(settings)}")
     for i, res in enumerate(results):
         print(f"\n### {i + 1}. {res['instruction']}")
         for name in ("base", "sft"):
