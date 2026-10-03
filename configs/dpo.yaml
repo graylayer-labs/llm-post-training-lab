@@ -1,0 +1,29 @@
+# Stage 2b: DPO on top of the SFT adapter, on pairs from `lab pairs`.
+sft_run_dir: outputs/sft
+pairs_dir: outputs/pairs
+output_dir: outputs/dpo
+
+# The frozen reference is the SFT model: the SFT adapter is merged into the
+# base weights and a fresh LoRA is trained on top, so "adapter off" = SFT.
+reference: sft
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05          # TRL disables dropout for DPO (disable_dropout=True)
+  trainable_tokens: []   # SFT already trained the chat-token rows
+
+train:
+  beta: 0.1              # strength of the pull towards the reference
+  epochs: 1
+  learning_rate: 5.0e-5
+  batch_size: 2          # pairs per step; each is a chosen and a rejected pass
+  grad_accum: 8          # effective batch 16 pairs
+  max_length: 768        # prompt + answer; 384-token samples fit
+  warmup_ratio: 0.1
+  logging_steps: 5
+  seed: 0                # also seeds the held-out split
+  eval_fraction: 0.1     # held-out pairs for reward accuracy and margins
+  save_steps: 25
+  save_total_limit: 2
+  keep_checkpoints: false

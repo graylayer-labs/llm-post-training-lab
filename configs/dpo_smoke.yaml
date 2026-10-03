@@ -1,0 +1,27 @@
+# Stage 2b smoke test: a few DPO steps on the smoke pairs.
+sft_run_dir: outputs/sft_smoke
+pairs_dir: outputs/pairs_smoke
+output_dir: outputs/dpo_smoke
+
+reference: sft
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  trainable_tokens: []
+
+train:
+  beta: 0.1
+  epochs: 1
+  learning_rate: 5.0e-5
+  batch_size: 2
+  grad_accum: 1
+  max_length: 768
+  warmup_ratio: 0.1
+  logging_steps: 1
+  seed: 0
+  eval_fraction: 0.25
+  save_steps: 2
+  save_total_limit: 2
+  keep_checkpoints: false

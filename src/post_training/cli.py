@@ -5,7 +5,13 @@ from __future__ import annotations
 import argparse
 import json
 
-from post_training.config import EvalConfig, PairsConfig, SftConfig, load_config
+from post_training.config import (
+    DpoConfig,
+    EvalConfig,
+    PairsConfig,
+    SftConfig,
+    load_config,
+)
 
 
 def main() -> None:
@@ -14,7 +20,7 @@ def main() -> None:
     for name in ("sft", "pairs", "dpo", "eval"):
         s = sub.add_parser(name)
         s.add_argument("--config", required=True)
-        if name == "sft":
+        if name in ("sft", "dpo"):
             s.add_argument(
                 "--resume",
                 action="store_true",
@@ -48,5 +54,16 @@ def main() -> None:
 
         manifest = pairs.run_pairs(load_config(a.config, PairsConfig))
         print(json.dumps(manifest.get("counts", {}), indent=1))
+    elif a.cmd == "dpo":
+        from post_training.train import dpo
+
+        try:
+            summary = dpo.run_dpo(
+                load_config(a.config, DpoConfig), resume=a.resume, scratch=a.scratch
+            )
+        except dpo.ResumeError as e:
+            raise SystemExit(f"error: {e}") from e
+        summary.pop("log_history")
+        print(json.dumps(summary, indent=1))
     else:
         raise SystemExit(f"{a.cmd}: not implemented yet")
