@@ -173,6 +173,9 @@ def test_scratch_allows_mismatch_and_keeps_original_provenance(
     summary = sft.run_sft(_cfg(tmp_path), resume=True, scratch=True)
     assert summary["provenance"]["commit"] == "aaa"
     assert summary["resume_provenance"]["commit"] == "bbb"
+    assert summary["provenance"]["scratch"] is True
+    assert "commit is bbb" in summary["provenance"]["scratch_reason"]
+    assert "dirty" in summary["provenance"]["scratch_reason"]
 
 
 def test_checkpoints_deleted_after_summary_by_default(
@@ -260,6 +263,17 @@ def test_scratch_without_original_provenance_is_flagged(
     (tmp_path / "provenance.json").unlink()
     summary = sft.run_sft(_cfg(tmp_path), resume=True, scratch=True)
     assert summary["original_provenance_missing"] is True
+    assert summary["provenance"]["scratch"] is True
+    assert "provenance.json is missing" in summary["provenance"]["scratch_reason"]
+
+
+def test_clean_resume_keeps_original_provenance_unscratched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup(monkeypatch)
+    _crashed_run(tmp_path, 25)
+    summary = sft.run_sft(_cfg(tmp_path), resume=True)
+    assert summary["provenance"]["scratch"] is False
 
 
 def test_resume_summary_notes_unrestored_mps_rng(

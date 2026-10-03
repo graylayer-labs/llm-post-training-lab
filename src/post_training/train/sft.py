@@ -141,6 +141,10 @@ def _check_resume(
             "; ".join(problems) + ". A resumed run must be one commit's code "
             "and one config; fix the above or pass --scratch."
         )
+    if problems:
+        # Forced through with --scratch: the run mixes code, trees or configs,
+        # so it must not read as quotable.
+        original = {**original, "scratch": True, "scratch_reason": "; ".join(problems)}
     return original, missing
 
 
