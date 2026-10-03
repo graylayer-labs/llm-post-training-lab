@@ -2,11 +2,51 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
+
+
+def checkpoint_dirs(ckpt_dir: Path) -> list[Path]:
+    """All ``checkpoint-N`` directories under ``ckpt_dir``, newest first."""
+    if not ckpt_dir.is_dir():
+        return []
+    found = [
+        (int(m.group(1)), d)
+        for d in ckpt_dir.iterdir()
+        if d.is_dir() and (m := re.fullmatch(r"checkpoint-(\d+)", d.name))
+    ]
+    return [d for _, d in sorted(found, key=lambda t: t[0], reverse=True)]
+
+
+def last_complete_checkpoint(ckpt_dir: Path) -> Path | None:
+    """Newest checkpoint that has ``trainer_state.json``.
+
+    The Trainer writes that file last, so a directory without it is a save
+    that was cut short by the crash and must not be resumed from.
+    """
+    for d in checkpoint_dirs(ckpt_dir):
+        if (d / "trainer_state.json").exists():
+            return d
+    return None
+
+
+def train_loss_from_log(log_history: list[dict[str, Any]]) -> float | None:
+    """Mean of the logged step-wise training losses, or None if none logged.
+
+    The Trainer's own ``training_loss`` is wrong after a resume (its running
+    total restarts at 0 but is divided by the full step count). The log
+    survives checkpoints. This equals what an uninterrupted run reports when
+    logging covers every step; with ``logging_steps > 1`` each entry is the
+    mean over its window, so a short final window makes the two differ
+    slightly.
+    """
+    losses = [h["loss"] for h in log_history if "loss" in h]
+    return sum(losses) / len(losses) if losses else None
 
 
 def pick_device() -> str:

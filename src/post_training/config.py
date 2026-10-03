@@ -63,6 +63,9 @@ class TrainSettings:
     warmup_ratio: float = 0.03
     logging_steps: int = 10
     seed: int = 0
+    save_steps: int = 25
+    save_total_limit: int = 2
+    keep_checkpoints: bool = False
 
 
 @dataclass(frozen=True)
