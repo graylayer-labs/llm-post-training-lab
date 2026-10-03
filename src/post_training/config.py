@@ -21,6 +21,11 @@ class LoraSettings:
     r is the rank of the update; alpha scales it (the effective scale is
     alpha / r). Targeting attention *and* MLP projections is what the QLoRA
     paper found necessary to match full fine-tuning.
+
+    trainable_tokens lists tokens whose embedding rows are trained in full.
+    A base model has barely seen the chat-template tokens, and LoRA on the
+    projections cannot change the (tied) embedding / output rows, so without
+    this the model never learns to emit ``<|im_end|>`` and stop.
     """
 
     r: int = 16
@@ -35,6 +40,7 @@ class LoraSettings:
         "up_proj",
         "down_proj",
     )
+    trainable_tokens: tuple[str, ...] = ("<|im_start|>", "<|im_end|>")
 
 
 @dataclass(frozen=True)
@@ -80,7 +86,7 @@ def _build[T](cls: type[T], raw: Any) -> T:
         hint = hints[f.name]
         if is_dataclass(hint):
             value = _build(hint, value)
-        elif f.name == "target_modules":
+        elif f.name in ("target_modules", "trainable_tokens"):
             value = tuple(value)
         kwargs[f.name] = value
     return cls(**kwargs)

@@ -24,3 +24,15 @@ def test_lora_defaults_target_attention_and_mlp() -> None:
     assert lora.r == 16
     assert lora.alpha == 32
     assert {"q_proj", "v_proj", "down_proj"} <= set(lora.target_modules)
+
+
+def test_lora_trains_chat_token_embeddings_by_default() -> None:
+    assert LoraSettings().trainable_tokens == ("<|im_start|>", "<|im_end|>")
+
+
+def test_trainable_tokens_from_yaml_become_a_tuple(tmp_path: Path) -> None:
+    p = tmp_path / "sft.yaml"
+    p.write_text(
+        "model_name: m\noutput_dir: o\nlora: {trainable_tokens: ['<|im_end|>']}\n"
+    )
+    assert load_config(p, SftConfig).lora.trainable_tokens == ("<|im_end|>",)

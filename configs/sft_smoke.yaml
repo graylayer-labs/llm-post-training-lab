@@ -1,0 +1,25 @@
+# Stage 1: LoRA supervised fine-tune of the base model on finance Q&A.
+model_name: Qwen/Qwen2.5-0.5B
+output_dir: outputs/sft_smoke
+
+lora:
+  r: 16          # rank of the low-rank update
+  alpha: 32      # effective scale is alpha / r = 2
+  dropout: 0.05
+
+data:
+  dataset: gbharti/finance-alpaca
+  train_size: 32
+  eval_size: 8
+  seed: 0
+  min_chars: 40
+  max_chars: 1500
+
+train:
+  epochs: 1
+  learning_rate: 2.0e-4   # LoRA tolerates ~10x the LR of full fine-tuning
+  batch_size: 2           # full-vocab logits (152k) dominate activation memory
+  grad_accum: 8           # effective batch 16
+  max_length: 512
+  warmup_ratio: 0.03
+  logging_steps: 10
