@@ -202,8 +202,10 @@ Each item links the section that holds the detail.
   [decisions.md, "De-duplicate prompts before splitting"](decisions.md#de-duplicate-prompts-before-splitting);
   [sft-results.md, "How these numbers were made"](sft-results.md#how-these-numbers-were-made).
 - **The killed run, checkpointing and the resumed-loss bug.** The first SFT
-  re-run was killed at step 18 of 125 by another agent's `pkill -f`.
-  Nothing had been saved. That led to checkpoints every 25 steps and
+  re-run was killed at step 18 of 125 by another agent's `pkill -f` (the
+  Claude agents and how they worked are in the README,
+  ["How this was built"](../README.md#how-this-was-built)). Nothing had
+  been saved. That led to checkpoints every 25 steps and
   `lab sft --resume`, which refuses a resume from a different commit or
   config. The Trainer's own `training_loss` is wrong after a resume (its
   running total restarts at 0 but is divided by the full step count: 3.380
@@ -232,9 +234,9 @@ Each item links the section that holds the detail.
   [decisions.md, "Treat the generation batch size as a setting"](decisions.md#treat-the-generation-batch-size-as-a-setting).
 - **A misreading, caught by checking the saved file.** The DPO summary's
   `logps_change` compares step 1 with step 18 and shows the chosen log-prob
-  rising by +67.178 (−279.884 to −212.707). The lead read that as DPO
-  raising the chosen answers, and wrote it into the brief for the results
-  doc; the agent writing the doc checked it against the summary and
+  rising by +67.178 (−279.884 to −212.707). The lead Claude Code session
+  read that as DPO raising the chosen answers, and wrote it into the brief
+  for the results doc; the agent writing the doc checked it against the summary and
   corrected it. It is mostly a change of batch: steps 1 and 18 score
   different pairs. The like-for-like held-out pairs show chosen roughly
   flat, slightly down (−281.671 to −286.481), while rejected fell by 59.24

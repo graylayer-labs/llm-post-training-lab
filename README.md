@@ -214,6 +214,29 @@ outputs/, data/     run outputs and data, gitignored
 - [INTENT.md](INTENT.md): purpose, standard and how decisions get made.
 - [CLAUDE.md](CLAUDE.md): how agents work in this repo.
 
+## How this was built
+
+- The owner set the goal and the standards ([INTENT.md](INTENT.md)) and
+  made the research decisions recorded on the issues, such as the DPO
+  rejection rule and greedy pairs ([#2](https://github.com/graylayer-labs/llm-post-training-lab/issues/2))
+  and dropping the paid judge ([#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3)).
+- A lead Claude Code session planned the work on the GitHub board and
+  delegated to Claude agents in separate git worktrees: implementers,
+  read-only reviewers, a guide writer, and a GitHub agent that pushes and
+  merges. The process is written down in [CLAUDE.md](CLAUDE.md) and
+  [.claude/](.claude/).
+- Every code change went through review before merge. Reviews caught real
+  bugs: a wrong train loss after resume
+  ([#21](https://github.com/graylayer-labs/llm-post-training-lab/issues/21)),
+  and the eval loading DPO on the wrong base and a scratch resume marked
+  quotable ([PR #27](https://github.com/graylayer-labs/llm-post-training-lab/pull/27)).
+- Agent incidents are reported like any other failure: an agent's pattern
+  `pkill -f` that killed a training run
+  ([sft-results.md](docs/sft-results.md#failures-on-the-way)), and a
+  misreading of DPO log-probs in the lead's brief, caught against the saved
+  file ([what-each-stage-changed.md](docs/what-each-stage-changed.md#what-broke-along-the-way)).
+- Cost stayed inside a Claude subscription: no API calls, no cloud.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
