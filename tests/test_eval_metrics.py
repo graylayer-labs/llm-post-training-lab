@@ -1,7 +1,9 @@
 import math
+import random
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 import torch
 
@@ -132,6 +134,24 @@ def test_bootstrap_ci_two_values_spans_zero_to_one() -> None:
     # and 1 with p = 1/4. Out of 1,000 draws, far more than 25 land on each
     # end, so the 2.5th and 97.5th percentiles are exactly 0 and 1.
     assert bootstrap_ci([True, False], resamples=1000, seed=0) == (0.0, 1.0)
+
+
+def test_bootstrap_ci_matches_an_independent_numpy_computation() -> None:
+    # random.Random.choices without weights draws index floor(random() * n)
+    # for each pick. Redraw those indices here and take numpy's percentiles.
+    xs = [True] * 6 + [False] * 4 + [True] * 2
+    n, resamples, seed = len(xs), 1000, 11
+    rng = random.Random(seed)
+    values = np.array([1.0 if x else 0.0 for x in xs])
+    means = [
+        values[[int(rng.random() * n) for _ in range(n)]].mean()
+        for _ in range(resamples)
+    ]
+    lo, hi = np.percentile(means, [2.5, 97.5])
+    got = bootstrap_ci(xs, resamples=resamples, seed=seed)
+    assert got is not None
+    assert got == pytest.approx((lo, hi))
+    assert got[0] < 8 / 12 < got[1]
 
 
 def test_bootstrap_ci_is_seeded() -> None:
