@@ -23,10 +23,12 @@ decisions and why, how to reproduce it, and what we would do differently.
 
 ## Chapters
 
-None yet. Chapters are written with `/guide` once a stage's results land.
+Chapters are written with `/guide` once a stage's results land. The DPO and
+evaluation chapters come later.
 
 | # | Chapter | Last updated | From issues |
 |---|---|---|---|
+| 1 | [The problem and the data](01-the-problem-and-the-data.md) | 2026-10-03 | #15, #11, #12 |
 
 ## Notes
 
