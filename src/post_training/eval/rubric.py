@@ -25,7 +25,9 @@ Rules:
   figures fails it, and a false figure copied from the reference passes.
 
 A row is a finance row when its prompt (instruction and input, not the
-reference answer) contains a finance term. The reference is left out because
+reference answer) contains a finance term, "bank" outside a non-money
+compound, "interest" beside a rate, "earn" or an amount, or a large currency
+amount. The reference is left out because
 general Alpaca answers mention finance in passing (a list of jobs that names
 "financial analyst"), and classing those rows as finance would require
 finance words of a correct answer that does not need them.
@@ -168,6 +170,62 @@ FINANCE_TERMS: tuple[str, ...] = (
     "securities",
     "payment*",
     "net worth",
+    # Trading terms. "option" and "capital" alone are general words ("choose
+    # an option", "capitalize the first letter", "capital of France"), so
+    # only their finance compounds count.
+    "call option*",
+    "put option*",
+    "stock option*",
+    "share option*",
+    "options trading",
+    "option pric*",
+    "market order*",
+    "limit order*",
+    "stop loss*",
+    "stop-loss*",
+    "trailing stop*",
+    "price target*",
+    "market cap",
+    "market capitali*",
+    "venture capital*",
+    "working capital",
+    "capital loss*",
+    "hedging",
+    "hedge fund*",
+    "bollinger",
+    "bid price*",
+    "ask price*",
+    "espp",
+    "adr",
+    "adrs",
+    "cpa",
+    "cpas",
+    "buying shares",
+    "buy shares",
+    "selling shares",
+    "sell shares",
+    "my shares",
+    "shares in",
+    "shares of",
+    "shares outstanding",
+    # Cheques, transfers and property.
+    "cashier* check*",
+    "personal check*",
+    "depositing a check",
+    "deposit a check",
+    "direct deposit*",
+    "wire transfer*",
+    "exchange rate*",
+    "closing cost*",
+    "real estate",
+    "foreclos*",
+    "landlord*",
+    "rental propert*",
+    "rental yield*",
+    "medical bill*",
+    "hourly pay",
+    "pay rise*",
+    "pay raise*",
 )
 
 
@@ -181,7 +239,35 @@ def _term_pattern(terms: tuple[str, ...]) -> re.Pattern[str]:
     return re.compile(r"(?<!\w)(?:" + "|".join(parts) + ")", re.IGNORECASE)
 
 
-_FINANCE = _term_pattern(FINANCE_TERMS)
+_FINANCE_TERMS_RE = _term_pattern(FINANCE_TERMS)
+# "bank" counts unless it is a non-money compound ("river bank", "food bank")
+# or an item in a word list ("bank, car, tree").
+_BANK = re.compile(
+    r"(?<!river )(?<!food )(?<!blood )(?<!west )(?<!memory )(?<!data )"
+    r"(?<!, )(?<!: )(?<!\w)bank(?:s|er|ers)?(?!\w)(?!\s*,)",
+    re.IGNORECASE,
+)
+# A large currency amount: "$50,000", "$2K", "£100k". Small sums ("$15 each")
+# are common in general arithmetic prompts and do not count.
+_LARGE_AMOUNT = re.compile(
+    r"[$£€]\s?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?\s?k)(?!\w)", re.I
+)
+# "interest" counts only beside a rate, "earn" or an amount in the same
+# sentence, so "your interests" and "of interest to teenagers" do not.
+_INTEREST = re.compile(
+    r"(?<!\w)interest(?!\w)(?=[^.?!\n]{0,40}?(?:\brate|\bearn|[$£€]\s?\d|\d\s?%))"
+    r"|(?:\brate|\bearn\w*|[$£€]\s?\d)[^.?!\n]{0,40}?(?<!\w)interest(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def _finance_match(text: str) -> re.Match[str] | None:
+    """The first finance term in ``text`` by the row-classing rules."""
+    for pattern in (_FINANCE_TERMS_RE, _BANK, _INTEREST, _LARGE_AMOUNT):
+        if m := pattern.search(text):
+            return m
+    return None
+
 
 # The answer side is broader. Once the prompt is known to be about finance,
 # words too ambiguous to class a prompt ("pay", "shares", "price") still show
@@ -423,7 +509,7 @@ def _prompt_text(row: Row) -> str:
 
 def is_finance_row(row: Row) -> bool:
     """True when the prompt (instruction and input) uses a finance term."""
-    return _FINANCE.search(_prompt_text(row)) is not None
+    return _finance_match(_prompt_text(row)) is not None
 
 
 def check_domain_terms(row: Row, answer: str) -> RuleResult:
