@@ -330,7 +330,12 @@ judge was dropped on 2026-10-03. The rubric part stands.
   all 10 saved greedy answers exactly. Batch size 5 matched the 5 short
   answers but diverged on 4 of the 5 that ran to the token limit, in one
   case after 22 characters. Measured on 2026-10-03, not saved.
-
+- **Applied:** the full eval (`configs/eval.yaml`) decodes at batch size 16
+  for every system, the same setting the DPO pairs were drawn with. At
+  batch size 1 the base model, which often runs to the 384-token limit,
+  would have kept a shared GPU busy for about 85 minutes. The answers are
+  therefore not bit-identical to one-at-a-time decoding, but every system
+  is decoded the same way, which is what the comparison needs.
 
 ### Checkpoint training runs and resume after a crash
 
