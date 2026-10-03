@@ -8,16 +8,18 @@ several nodes.
 
 Two kinds of number appear here. **Measured** figures come from saved files
 in `outputs/`, and each one names its file. **Estimates** are back-of-envelope
-arithmetic, shown inline so a reader can check them. Section 3 is reasoning
-only. Nothing in it was run.
+arithmetic, shown inline so a reader can check them. Section 3 puts the two
+side by side for SFT and DPO. Section 4 is reasoning only. Nothing in it was
+run.
 
-**A note on units.** The measured figures were computed as
-bytes / 2^30 (`accelerator_memory_gb` in
-`src/post_training/train/common.py`, which reads
-`torch.mps.driver_allocated_memory()`). They are therefore GiB, although the
-run files and [sft-results.md](sft-results.md) label them GB. Section 1 and 2
-estimates use the same divisor, so the columns compare like with like.
-Section 3 uses decimal GB and TB (1 TB = 1,000 GB), as hardware vendors do.
+**Units.** Every measured memory figure in this project is GiB, not GB.
+`accelerator_memory_gb` in `src/post_training/train/common.py` reads
+`torch.mps.driver_allocated_memory()` and divides by 2^30, so the
+`peak_memory_gb` and `mps_alloc_gb_at_end` keys in the run files, and the
+"GB" figures in [sft-results.md](sft-results.md), are GiB. This page labels
+them GiB. The estimates in Sections 1 to 3 use the same divisor, so the
+columns compare like with like. Section 4 uses decimal GB and TB (1 TB =
+1,000 GB), as hardware vendors do.
 
 ## 1. Where the memory goes on the laptop (SFT)
 
@@ -30,14 +32,14 @@ as "152k" elsewhere in this repo).
 
 ### Measured figures and their sources
 
-| Figure | Value | Source |
+| Figure | Measured (GiB) | Source |
 |---|---|---|
-| Peak MPS driver memory, clean SFT re-run, sampled once per optimiser step and at evaluation | 8.10 GB | `outputs/sft/summary.json`, `peak_memory_gb`; [sft-results.md](sft-results.md), Runs table |
-| MPS memory at the end of the same run | 6.0 GB | `outputs/sft/summary.json`, `device.mps_alloc_gb_at_end` |
-| Memory probe, LoRA r=16, `nll`, 8 steps at batch 2 (two runs) | 4.56 / 4.70 GB | [sft-results.md](sft-results.md), "LoRA vs full fine-tune memory"; raw in `outputs/memory_probe/results.jsonl` |
-| Memory probe, LoRA r=16, `chunked_nll`, no token rows | 3.75 GB | same |
-| Memory probe, LoRA r=64 | 5.28 GB | same |
-| Memory probe, full fine-tune, bf16 weights, grads and AdamW state | 6.59 GB | same |
+| Peak MPS driver memory, clean SFT re-run, sampled once per optimiser step and at evaluation | 8.10 | `outputs/sft/summary.json`, `peak_memory_gb`; [sft-results.md](sft-results.md), Runs table |
+| MPS memory at the end of the same run | 6.0 | `outputs/sft/summary.json`, `device.mps_alloc_gb_at_end` |
+| Memory probe, LoRA r=16, `nll`, 8 steps at batch 2 (two runs) | 4.56 / 4.70 | [sft-results.md](sft-results.md), "LoRA vs full fine-tune memory"; raw in `outputs/memory_probe/results.jsonl` |
+| Memory probe, LoRA r=16, `chunked_nll`, no token rows | 3.75 | same |
+| Memory probe, LoRA r=64 | 5.28 | same |
+| Memory probe, full fine-tune, bf16 weights, grads and AdamW state | 6.59 | same |
 
 The probe trains on 16 short rows, so its sequences are shorter than the
 512-token cap. Its peaks are not the peak of the full run. The full run's
@@ -45,15 +47,30 @@ peak also covers evaluation and the longest batches. Both numbers are
 driver memory, which includes the allocator's cached blocks, not just live
 tensors.
 
-### Breakdown
+### How each estimate was made
 
-| Component | Measured | Estimate | How the estimate was made |
-|---|---|---|---|
-| Base weights, bf16 | not isolated | 0.92 GB (estimate) | 494,032,768 params × 2 bytes = 988,065,536 bytes; / 2^30 = 0.92 |
-| LoRA params + grads + AdamW state | r=64 minus r=16 (mean of 4.56 and 4.70): 5.28 − 4.63 = 0.65 GB for 26.4M extra params | 0.13 GB (estimate) | PEFT keeps adapter weights in fp32 by default when the base is bf16. 8,800,000 × (4 param + 4 grad + 8 two moments) = 16 bytes × 8.8M = 140.8 MB = 0.13 GB. If the adapter were bf16 the figure would be 0.07 GB. |
-| Activations saved for backward | not isolated | 1.1 to 1.5 GB (estimate) | See below |
-| Full-vocab logits for `nll` | 0.81 to 0.95 GB (`nll` 4.56 / 4.70 minus `chunked_nll` 3.75) | 0.58 to 1.45 GB at the full 512 tokens (estimate) | 2 × 512 × 151,936 = 155,582,464 elements. bf16: × 2 bytes = 0.29 GB. The loss upcasts to fp32: × 4 bytes = 0.58 GB. If the bf16 logits, the fp32 copy and the fp32 gradient of the logits are all live at once: 0.29 + 0.58 + 0.58 = 1.45 GB. |
-| Allocator cache and driver overhead | 8.10 − (0.92 + 0.13 + 1.3 + 1.45) ≈ 4.3 GB (derived from the measured peak and the estimates above) | not estimated from first principles | Remainder. See "Where measured and estimated disagree". |
+The breakdown table itself is in Section 3, beside DPO's. The arithmetic
+behind the SFT column:
+
+- **Base weights, bf16.** 494,032,768 params × 2 bytes = 988,065,536 bytes;
+  / 2^30 = 0.92 GiB.
+- **LoRA params + grads + AdamW state.** PEFT keeps adapter weights in fp32
+  by default when the base is bf16. 8,800,000 × (4 param + 4 grad + 8 two
+  moments) = 16 bytes × 8.8M = 140.8 MB = 0.13 GiB. If the adapter were
+  bf16 the figure would be 0.07 GiB. The nearest measurement is the probe's
+  r=64 minus r=16 (mean of 4.56 and 4.70): 5.28 − 4.63 = 0.65 GiB for 26.4M
+  extra params, which is more than the state alone (see "Where measured and
+  estimated disagree").
+- **Activations saved for backward.** 1.1 to 1.5 GiB, worked below.
+- **Full-vocab logits for `nll`.** 2 × 512 × 151,936 = 155,582,464
+  elements. bf16: × 2 bytes = 0.29 GiB. The loss upcasts to fp32: × 4 bytes
+  = 0.58 GiB. If the bf16 logits, the fp32 copy and the fp32 gradient of the
+  logits are all live at once: 0.29 + 0.58 + 0.58 = 1.45 GiB. The probe
+  measures 0.81 to 0.95 GiB for them (`nll` 4.56 / 4.70 minus `chunked_nll`
+  3.75), on rows shorter than 512 tokens.
+- **Allocator cache and driver overhead.** Not estimated from first
+  principles. It is the remainder: the measured peak minus the sum of the
+  estimates above.
 
 **Activations, worked.** From the model's `config.json`: 24 layers, hidden
 896, intermediate 4,864, 14 query heads and 2 key/value heads of width 64.
@@ -63,9 +80,9 @@ bf16 are roughly: two norm inputs (2 × 896), the query (896), key and value
 input (896), and four intermediate-width tensors for gate, up, their product
 and the `down_proj` input (4 × 4,864). That is 25,088 elements, about
 50 KB. Over 2 × 512 = 1,024 tokens and 24 layers: 25,088 × 2 bytes × 1,024 ×
-24 = 1,233 MB = 1.15 GB. If the attention backend also saves the score
+24 = 1,233 MB = 1.15 GiB. If the attention backend also saves the score
 matrices (eager attention does; SDPA may not): 14 heads × 512 × 512 × 2
-bytes × 2 sequences × 24 layers = 0.33 GB more. So 1.1 to 1.5 GB. The
+bytes × 2 sequences × 24 layers = 0.33 GiB more. So 1.1 to 1.5 GiB. The
 estimate ignores dropout masks and the LoRA branches' own small
 intermediates. The base weights are frozen, but the activations must still
 be kept, because the gradient has to flow back through every frozen layer to
@@ -74,18 +91,18 @@ activation memory.
 
 **Full fine-tune, for comparison.** The probe's full fine-tune keeps
 weights, grads and AdamW state all in bf16: 494,032,768 × (2 grad + 4 two
-moments) = 2.76 GB more than the frozen model (estimate). Measured: 6.59 −
-4.63 = 1.96 GB more than the r=16 mean. It trains 56 times the parameters
+moments) = 2.76 GiB more than the frozen model (estimate). Measured: 6.59 −
+4.63 = 1.96 GiB more than the r=16 mean. It trains 56 times the parameters
 for 1.4 times the memory, because at this size the logits and activations
 are the larger share. A standard mixed-precision full fine-tune with fp32
-master weights and fp32 moments would be 494M × 12 bytes = 5.5 GB of
+master weights and fp32 moments would be 494M × 12 bytes = 5.5 GiB of
 optimiser state alone (estimate), which is why that path was not taken on a
 24 GB laptop.
 
 ### Where measured and estimated disagree
 
 - **The peak is roughly double the sum of the parts.** The estimates add to
-  about 3.8 GB at 512 tokens. The run peaked at 8.10 GB. Three reasons,
+  2.7 to 4.0 GiB at 512 tokens. The run peaked at 8.10 GiB. Three reasons,
   from the evidence in [sft-results.md](sft-results.md):
   1. *The measurement is driver memory, not live tensors.* It is sampled
      just before `torch.mps.empty_cache()`, so it includes every block the
@@ -101,45 +118,70 @@ optimiser state alone (estimate), which is why that path was not taken on a
      sits after the optimiser step, when gradients have been released but
      the cache has not. A spike inside a step is missed; a sample during
      evaluation of a long batch is included. The true peak may be higher
-     than 8.10 GB, and the composition of what was sampled is not known.
+     than 8.10 GiB, and the composition of what was sampled is not known.
 - **The logits cost less than the upper estimate.** Measured 0.81 to 0.95
-  GB against 0.58 to 1.45 GB at 512 tokens. The probe's rows are shorter
+  GiB against 0.58 to 1.45 GiB at 512 tokens. The probe's rows are shorter
   than 512 tokens, so the measured figure is for a smaller T. It sits where
   the estimate predicts for sequences of a few hundred tokens with an fp32
   copy and its gradient live together.
-- **Full fine-tune state costs less than estimated.** Measured 1.96 GB
-  against 2.76 GB. The sample is taken after the optimiser step, by which
+- **Full fine-tune state costs less than estimated.** Measured 1.96 GiB
+  against 2.76 GiB. The sample is taken after the optimiser step, by which
   point the Trainer has most likely released the gradients (`zero_grad`),
-  so the 0.92 GB of bf16 gradients is no longer live. 2.76 − 0.92 = 1.84 GB
-  is close to the measured 1.96. Not verified by a separate measurement.
-- **LoRA r=64 costs more than its state alone.** Measured 0.65 GB for 26.4M
-  extra parameters against 0.39 GB of fp32 state (26,394,624 × 16 bytes).
-  The rest is the rank-64 intermediates saved in every adapted projection,
-  which the state estimate does not count.
-- **Two runs of the same setting differ by 0.14 GB** (4.56 and 4.70). Read
+  so the 0.92 GiB of bf16 gradients is no longer live. 2.76 − 0.92 = 1.84
+  GiB is close to the measured 1.96. Not verified by a separate measurement.
+- **LoRA r=64 costs more than its state alone.** Measured 0.65 GiB for
+  26.4M extra parameters against 0.39 GiB of fp32 state (26,394,624 × 16
+  bytes). The rest is the rank-64 intermediates saved in every adapted
+  projection, which the state estimate does not count.
+- **Two runs of the same setting differ by 0.14 GiB** (4.56 and 4.70). Read
   differences of that size as noise.
 
 ## 2. DPO memory
 
-The DPO run is described in `configs/dpo.yaml` and
-`src/post_training/train/dpo.py`. Figures below are estimates only. **The
-measured DPO peak is reported in docs/dpo-results.md.**
+Setting: the merged SFT model in bf16 on MPS, a fresh LoRA r=16 on all
+seven projections (8,798,208 trainable parameters), beta 0.1, micro-batch 2
+pairs × 8 accumulation, `max_length` 768 (`configs/dpo.yaml`,
+`outputs/dpo/summary.json`). The run is at commit `0263788`, clean tree
+([dpo-results.md](dpo-results.md)).
 
-What DPO adds, conceptually:
+### Measured figures and their sources
+
+| Figure | Measured (GiB) | Source |
+|---|---|---|
+| Peak MPS driver memory, DPO run, sampled once per optimiser step and at evaluation | 13.19 | `outputs/dpo/summary.json`, `peak_memory_gb`; [dpo-results.md](dpo-results.md), Memory |
+| MPS memory at the end of the same run | 7.6 | `outputs/dpo/summary.json`, `device.mps_alloc_gb_at_end` |
+| Peak of the SFT re-run, for comparison | 8.10 | `outputs/sft/summary.json`, `peak_memory_gb` |
+
+DPO peaked at 13.19 GiB against 8.10 GiB for SFT, 1.6 times, with the same
+micro-batch of 2 and the same model. Both samples are driver memory, taken
+once per step, so each may miss a spike inside a step. The run records the
+peak only; nothing below is a measured breakdown.
+
+### What DPO adds
 
 - **Two sequences per pair instead of one.** Each pair has a chosen and a
   rejected answer. Both go through the policy, forward and backward, so the
   activations and logits of Section 1 are counted twice per pair. At
   `batch_size: 2` pairs, `max_length: 768`, that is four sequences of up to
-  768 tokens per micro-step against two of 512 for SFT: 3 times the tokens.
-  Logits (estimate): 4 × 768 × 151,936 = 466,747,392 elements; × 4 bytes
-  fp32 = 1.74 GB for one fp32 copy, 4.35 GB if bf16, fp32 copy and fp32
-  gradient are live together. Activations (estimate): 3 × the SFT figure,
-  3.4 to 4.5 GB. TRL concatenates chosen and rejected into one forward
-  pass, which changes the shape but not the total.
+  768 tokens per micro-step against two of 512 for SFT: 3 times the token
+  cap. The cap matters because the rejected answers are long: 66 of the 105
+  were 384-token loops that never stopped, and on the held-out pairs
+  rejected answers average 356.4 tokens against 124.1 for chosen
+  ([dpo-results.md](dpo-results.md), Counts and Lengths). SFT's rows are
+  single answers, most of them well under 512 tokens.
+  Activations (estimate): 3 × the SFT figure, 3.4 to 4.5 GiB. TRL
+  concatenates chosen and rejected into one forward pass, which changes the
+  shape but not the total.
+- **The full-vocab logits, four times over.** Every sequence carries
+  151,936 logits per token, and the DPO loss needs the log-probability of
+  every answer token, so the full tensor is live. Estimate: 4 × 768 ×
+  151,936 = 466,747,392 elements; × 4 bytes = 1.74 GiB for one fp32 copy,
+  4.35 GiB if the bf16 logits, the fp32 copy and the fp32 gradient are live
+  together. For SFT the same tensor was 0.58 to 1.45 GiB. This is the
+  single largest reason for the gap.
 - **A reference model.** The DPO loss compares the policy's log-probability
   ratio with a frozen reference's. In general that is a second copy of the
-  model, run forward on both sequences of every pair: another 0.92 GB of
+  model, run forward on both sequences of every pair: another 0.92 GiB of
   bf16 weights (494,032,768 × 2 bytes, estimate) and a second set of forward
   activations, which need not be saved for backward.
 
@@ -150,24 +192,76 @@ the reference log-probs with that LoRA disabled
 [decisions.md](decisions.md), "Use the SFT model as DPO's reference by
 merging its adapter"). Switching the adapter off gives exactly the merged
 SFT model, so there is no second copy of the weights and no second
-optimiser. The reference forward runs under `no_grad`, so its activations
-are freed layer by layer. The cost is compute, not memory: per batch of
-pairs, a reference forward and a policy forward over both the chosen and
-rejected sequences, plus one backward, against one forward and one backward
-over a single sequence for SFT.
+optimiser. The reference forward runs under `no_grad`
+(`precompute_ref_log_probs` is false, so it runs every step), so its
+activations are freed layer by layer; its logits exist only as a transient,
+4 × 768 × 151,936 × 2 bytes = 0.87 GiB in bf16 (estimate). The cost is
+compute, not memory: per batch of pairs, a reference forward and a policy
+forward over both the chosen and rejected sequences, plus one backward,
+against one forward and one backward over a single sequence for SFT.
 
 Why that matters here: the laptop has 24 GB of unified memory shared with
-everything else. A second 0.92 GB copy would fit, but the pattern is the
+everything else. A second 0.92 GiB copy would fit, but the pattern is the
 point. The adapter-off trick is what makes DPO on a LoRA policy cost about
 the same memory as SFT on longer sequences, and it is the same trick that
-removes the reference copy at 70B (Section 3).
+removes the reference copy at 70B (Section 4).
 
-Rough DPO estimate, summing the parts: 0.92 weights + 0.13 LoRA state +
-3.4 to 4.5 activations + 1.7 to 4.4 logits = 6 to 10 GB of live tensors
-before allocator overhead (estimate). Compare that with the measured peak in
-docs/dpo-results.md, remembering the allocator gap seen in Section 1.
+### Measured against estimated
 
-## 3. The same recipe at 70B across multiple nodes
+Summing the parts: 0.92 weights + 0.13 LoRA state + 3.4 to 4.5 activations
++ 1.74 to 4.35 logits = 6.2 to 9.9 GiB of live tensors (estimate). The
+measured peak is 13.19 GiB, so the remainder is 3.3 to 7.0 GiB. For SFT the
+same remainder was 4.1 to 5.4 GiB (Section 1). The gap has the same
+explanation: driver memory includes the allocator's cached blocks, the
+logit buffers change shape every batch, and the sample is taken once per
+step. Two DPO-specific points:
+
+- **The gap from SFT is explained by the tokens and the logits.** DPO's
+  estimated live tensors are 3.5 to 5.9 GiB more than SFT's. Of that, the
+  logits account for 1.2 to 2.9 GiB and the activations for 2.3 to 3.0 GiB.
+  The weights and the LoRA state are the same in both. The measured gap is
+  13.19 − 8.10 = 5.09 GiB, inside the estimated range. The adapter-off
+  reference adds nothing to it.
+- **The peak did not triple with the token cap.** Tokens per micro-step are
+  capped at 3 times SFT's, but the peak rose 1.6 times, because the weights
+  and much of the allocator remainder do not scale with tokens, and because
+  most sequences are shorter than the cap. The range of the estimate, not a
+  point, is what the measurement can confirm.
+
+## 3. The breakdown: SFT and DPO side by side
+
+One table, as [#4](https://github.com/graylayer-labs/llm-post-training-lab/issues/4)
+asks. Measured figures are GiB from the files named in Sections 1 and 2.
+Estimates are the arithmetic in Sections 1 and 2. "Not isolated" means the
+run records only the peak, so that component was not measured on its own.
+
+| Component | SFT measured (GiB) | SFT estimate (GiB) | DPO measured (GiB) | DPO estimate (GiB) |
+|---|---|---|---|---|
+| Base weights, bf16, 494,032,768 params | not isolated | 0.92 | not isolated | 0.92 (merged SFT weights, same count) |
+| LoRA params + grads + AdamW state, fp32 | 0.65 for 26.4M extra params (probe, r=64 minus r=16) | 0.13 (8,800,000 params) | not isolated | 0.13 (8,798,208 params) |
+| Activations saved for backward | not isolated | 1.1 to 1.5 (2 × 512 tokens) | not isolated | 3.4 to 4.5 (4 × 768 tokens) |
+| Full-vocab logits, 151,936 wide | 0.81 to 0.95 (probe, `nll` minus `chunked_nll`, rows shorter than 512) | 0.58 to 1.45 | not isolated | 1.74 to 4.35 |
+| Reference model weights | none | none | none: adapter-off reference | 0 (would be 0.92 for a second copy) |
+| Sum of the estimates | | 2.7 to 4.0 | | 6.2 to 9.9 |
+| Allocator cache and driver remainder (peak minus the sum) | 4.1 to 5.4 | not estimated | 3.3 to 7.0 | not estimated |
+| **Peak driver memory, sampled per step** | **8.10** | | **13.19** | |
+| Driver memory at the end of the run | 6.0 | | 7.6 | |
+
+Sources: SFT peak and end-of-run from `outputs/sft/summary.json`
+(`peak_memory_gb`, `device.mps_alloc_gb_at_end`), commit `76739e6`; DPO
+from `outputs/dpo/summary.json` (same keys), commit `0263788`; the probe
+rows from `outputs/memory_probe/results.jsonl`, commit `c81b784`
+([sft-results.md](sft-results.md), "LoRA vs full fine-tune memory").
+
+What the table says: on a 0.5B model the weights are a small share. The
+tensors that grow with tokens, the activations and above all the 152k-wide
+logits, are most of the live memory, and the allocator's cache is about as
+large again. DPO costs more than SFT because it runs more tokens per step
+through the same model, not because of the reference. That is the opposite
+of the picture at 70B, where the weights and optimiser state dominate and
+the reference copy is a real cost (Section 4.6).
+
+## 4. The same recipe at 70B across multiple nodes
 
 **This section is reasoning, not measurement.** Nothing here was run. The
 project's non-goals exclude multi-GPU work. The arithmetic uses round
@@ -176,7 +270,7 @@ Llama-2-70B-like layout: 80 layers, hidden 8,192, intermediate 28,672, 64
 query heads and 8 key/value heads of width 128. Hardware: 8 nodes × 8 GPUs
 with 80 GB each, NVLink inside a node, InfiniBand between nodes.
 
-### 3.1 Full fine-tuning with mixed-precision AdamW: the state alone
+### 4.1 Full fine-tuning with mixed-precision AdamW: the state alone
 
 Mixed-precision AdamW holds, per parameter: bf16 weights (2 bytes), bf16
 gradients (2), fp32 master weights (4), and two fp32 moments (4 + 4). That is
@@ -188,7 +282,7 @@ Of that, the optimiser state (master weights and two moments) is 12 bytes
 per parameter = 840 GB. Weights are 140 GB and gradients 140 GB. No GPU holds
 1.12 TB, so the state has to be split.
 
-### 3.2 ZeRO stages and FSDP
+### 4.2 ZeRO stages and FSDP
 
 ZeRO (DeepSpeed) and FSDP (PyTorch) shard the training state across the
 data-parallel ranks instead of replicating it. The stages differ in what
@@ -213,7 +307,7 @@ layers × 2 bytes = 1.75 GB per layer, estimate), uses them, and frees them.
 So one or two layers' worth of gathered weights is live at any time, on top
 of the 17.5 GB shard.
 
-### 3.3 Activations and activation checkpointing
+### 4.3 Activations and activation checkpointing
 
 Per token and per layer, using the same tally as Section 1 with the 70B
 shapes: two norm inputs (2 × 8,192), query (8,192), key and value (2 ×
@@ -246,7 +340,7 @@ TP splits along the vocabulary to 0.27 GB per GPU. Chunked or fused losses
 avoid holding them at all. The laptop's `nll` problem is the same problem,
 smaller.
 
-### 3.4 Communication
+### 4.4 Communication
 
 What moves, per training step, under ZeRO-3 / FSDP full shard across 64
 GPUs:
@@ -295,7 +389,7 @@ across nodes instead of 64, and the gathered volume per GPU drops to 8.75B
 × 2 bytes × 7 / 8 ≈ 15 GB per pass, about 46 GB per step (estimate), rather
 than 420.
 
-### 3.5 LoRA at 70B
+### 4.5 LoRA at 70B
 
 The base is frozen, so it has no gradients and no optimiser state: the 840
 GB of optimiser state and 140 GB of gradients disappear. What remains is the
@@ -334,7 +428,7 @@ is still the upper bound, and LoRA's rank and target set become tuning
 choices. This project cannot answer the second half; it trained one rank on
 one model.
 
-### 3.6 DPO at 70B
+### 4.6 DPO at 70B
 
 DPO needs reference log-probabilities for every chosen and rejected
 sequence. Three ways to get them:
@@ -366,7 +460,7 @@ that changes the reference during training, such as periodic reference
 updates, cannot use it. The adapter-off trick is simpler when the policy is
 LoRA, at the price of an extra forward per pair each step.
 
-### 3.7 What I would choose, and the per-GPU figure
+### 4.7 What I would choose, and the per-GPU figure
 
 **SFT at 70B: LoRA + FSDP full shard within a node, data parallel across
 nodes.** Per GPU, estimate: 17.5 GB (bf16 base shard) + 1.75 GB (one layer
@@ -385,7 +479,7 @@ nodes, full activation checkpointing.** Per GPU, estimate: 17.5 GB (state
 shard: 70B × 16 bytes / 64) + 2 to 4 GB (one or two layers gathered for the
 current TP shard) + about 11 GB (activations, as above) + about 1 GB
 (logits, vocabulary-sharded) + several GB of allocator slack ≈ 35 to 45 GB.
-Why: it is the only stage that fits at all (Section 3.2), TP inside the node
+Why: it is the only stage that fits at all (Section 4.2), TP inside the node
 keeps the latency-bound collectives on NVLink, and sharding across only 8
 nodes rather than 64 flat ranks keeps the gathered volume per GPU near 46
 GB per step rather than 420. The remaining headroom goes to a larger
@@ -401,7 +495,7 @@ All of these are estimates with stated assumptions. The honest check is to
 run one step and read the allocator, which is exactly what the laptop
 runs do.
 
-## 4. What would differ beyond memory
+## 5. What would differ beyond memory
 
 - **Data pipeline.** The laptop loads 2,000 rows, filters and de-duplicates
   them in memory, and tokenises on the fly. At 70B the data is millions of
