@@ -38,6 +38,26 @@ flowchart LR
    perplexity, ROUGE-L, a rule-based rubric and a pairwise Claude judge.
    Planned.
 
+## Why this approach
+
+- **A base model, not Instruct.** An Instruct model already follows the chat
+  format and stops. On the base model, the effect of SFT on format and
+  stopping is visible.
+- **LoRA on one laptop.** The aim is understanding over scale, and a 0.5B
+  model on one laptop is enough to show what each stage does. QLoRA is ruled
+  out because bitsandbytes 4-bit quantisation is CUDA-only.
+- **Loss on the answer only.** The model should learn to answer and to stop.
+  It should not learn to reproduce the system prompt and question.
+- **Home-made preference pairs.** Real users rarely have preference data, so
+  building pairs from the project's own SFT data is the realistic case. It
+  also ties the DPO signal to the same rubric the evaluation scores.
+- **A rubric and a judge, not a public benchmark.** The task has no
+  benchmark, and loss metrics miss the failures that matter here. Those are
+  answers that never stop, repeat themselves or invent figures.
+
+The full reasoning, with the alternatives for each choice, is in
+[docs/decisions.md](docs/decisions.md).
+
 ## Status
 
 Work is tracked in [epic #5](https://github.com/graylayer-labs/llm-post-training-lab/issues/5)
