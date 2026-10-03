@@ -102,7 +102,7 @@ the base model, over all 200 held-out rows (200 of 200 probed). Saved in
 | Median probability | 2.065e-09 | 0.7417 |
 | Mean probability | 9.548e-07 | 0.6335 |
 | Median rank | 123,031 | 1 |
-| Share of rows where `<|im_end|>` ranks first | 0.00 | 0.795 |
+| Share of rows where the stop token ranks first | 0.00 | 0.795 |
 
 The Part 1 text quoted two figures from an unsaved check: a base rank of
 "about 115,000th" and a probability of "0.70" after the v2 fix. They were
