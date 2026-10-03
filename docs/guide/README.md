@@ -30,6 +30,7 @@ evaluation chapters come later.
 |---|---|---|---|
 | 1 | [The problem and the data](01-the-problem-and-the-data.md) | 2026-10-03 | #15, #11, #12 |
 | 2 | [Supervised fine-tuning](02-supervised-fine-tuning.md) | 2026-10-03 | #12, #1 |
+| 3 | [The stop-token bug](03-the-stop-token-bug.md) | 2026-10-03 | #19, #12, #1 |
 
 ## Notes
 
