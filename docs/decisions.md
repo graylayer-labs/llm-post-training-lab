@@ -109,6 +109,38 @@ yet.
 
 ## Evaluation and preferences (planned)
 
+### Class finance rows by the prompt, and match figures as value sets
+
+*2026-10-03*
+
+- **Chose:** a row counts as finance when its instruction or input uses a
+  finance term, such as "dividend", "market order" or "bank" outside a
+  non-money compound like "river bank". The `domain_terms` and
+  `ungrounded_numbers` rules apply only to this finance slice, and report
+  "does not apply" on every other row. The answer is checked against a
+  broader list ("pay", "shares", "price"). Each figure maps to a set of
+  equal values: `5%` to {5, 0.05}, `$1.5 million` to {1.5, 1,500,000}. A
+  figure passes if any value appears in the prompt or reference. Bare
+  integers 0 to 10 and years 1900 to 2099 are exempt.
+- **Over:** classing rows by the reference answer too, one term list for
+  both sides, and exact string matching of numbers.
+- **Why:** The rubric picks DPO's rejected answers, so a rule that fails
+  good answers teaches the wrong thing. General Alpaca answers mention
+  finance in passing ("financial analyst" in a list of jobs), and recipes or
+  code carry numbers no reference repeats. Exact matching would fail `0.05`
+  against `5%`. See #11.
+- **Result:** a scratch run of `tools/rubric_on_references.py` on the
+  pre-merge branch (commit `34f850f`, before the split was de-duplicated in
+  #15) covered the 2,200 training and eval references. The quotable re-run
+  from `main` belongs to #12. 514 (23.4%) are finance rows. The references pass
+  98.4% overall, `domain_terms` 96.5% and `repetition` 99.2%.
+- **Limit:** `ungrounded_numbers` checks grounding, not truth. A correct
+  figure that the reference does not state fails it, for example "$52.50"
+  for $50 after a year at 5%. With the reference removed as a number source,
+  193 of the 514 finance references (37.5%) fail it. An earlier, narrower
+  classifier gave 38.2%, measured but not saved. A good answer that cites
+  its own figures is therefore often marked ungrounded.
+
 ### Score answers with a rubric and a pairwise judge
 
 *2026-10-03*, **Planned**
