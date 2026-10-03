@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import torch
 
-from post_training.config import SftConfig, TrainSettings
+from post_training.config import SftConfig, TrainSettings, to_dict
 from post_training.data.finance import FinanceSplits
 from post_training.train import sft
 
@@ -43,7 +43,10 @@ def _setup(
     class StubTrainer:
         def __init__(self, **kw: Any) -> None:
             self.model = StubModel()
-            self.state = SimpleNamespace(log_history=[], global_step=0)
+            self.state = SimpleNamespace(
+                log_history=[{"loss": 2.0}, {"eval_loss": 9.0}, {"loss": 4.0}],
+                global_step=0,
+            )
 
         def evaluate(self) -> dict[str, float]:
             calls.evaluate += 1
@@ -71,16 +74,18 @@ def _cfg(out: Path, **train: Any) -> SftConfig:
     return SftConfig(model_name="m", output_dir=str(out), train=TrainSettings(**train))
 
 
-def _checkpoints(out: Path, *steps: int) -> None:
+def _checkpoints(out: Path, *steps: int, partial: tuple[int, ...] = ()) -> None:
     for s in steps:
         d = out / "checkpoints" / f"checkpoint-{s}"
         d.mkdir(parents=True)
-        (d / "trainer_state.json").write_text("{}")
+        if s not in partial:
+            (d / "trainer_state.json").write_text("{}")
 
 
-def _crashed_run(out: Path, *steps: int) -> None:
+def _crashed_run(out: Path, *steps: int, **train: Any) -> None:
     _checkpoints(out, *steps)
     (out / "provenance.json").write_text(json.dumps(PROV))
+    (out / "config.json").write_text(json.dumps(to_dict(_cfg(out, **train))))
     (out / "eval_before.json").write_text(json.dumps({"eval_loss": 9.0}))
 
 
@@ -121,7 +126,7 @@ def test_resume_without_checkpoints_is_an_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _setup(monkeypatch)
-    with pytest.raises(sft.ResumeError, match="no checkpoint"):
+    with pytest.raises(sft.ResumeError, match="no complete checkpoint"):
         sft.run_sft(_cfg(tmp_path), resume=True)
 
 
@@ -129,7 +134,7 @@ def test_resume_picks_last_checkpoint_and_reuses_eval_before(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = _setup(monkeypatch)
-    _crashed_run(tmp_path, 25, 50)
+    _crashed_run(tmp_path, 25, 50, keep_checkpoints=True)
     summary = sft.run_sft(_cfg(tmp_path, keep_checkpoints=True), resume=True)
     assert calls.resume_from == [str(tmp_path / "checkpoints" / "checkpoint-50")]
     assert calls.evaluate == 1  # only the "after" eval
@@ -138,6 +143,7 @@ def test_resume_picks_last_checkpoint_and_reuses_eval_before(
     assert "resumed_at" in summary
     assert summary["provenance"]["commit"] == "aaa"
     assert summary["resumed_segment_only"] is True
+    assert summary["train_loss"] == 3.0  # mean of logged losses, not 0.5
 
 
 def test_resume_refuses_on_commit_mismatch(
@@ -183,9 +189,98 @@ def test_keep_checkpoints_true_keeps_them(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _setup(monkeypatch)
-    _crashed_run(tmp_path, 25)
+    _crashed_run(tmp_path, 25, keep_checkpoints=True)
     sft.run_sft(_cfg(tmp_path, keep_checkpoints=True), resume=True)
     assert (tmp_path / "checkpoints" / "checkpoint-25").exists()
+
+
+def test_resume_skips_half_written_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _setup(monkeypatch)
+    _crashed_run(tmp_path, 25, keep_checkpoints=True)
+    _checkpoints(tmp_path, 50, partial=(50,))
+    summary = sft.run_sft(_cfg(tmp_path, keep_checkpoints=True), resume=True)
+    assert calls.resume_from == [str(tmp_path / "checkpoints" / "checkpoint-25")]
+    assert summary["resumed_from"] == 25
+
+
+def test_resume_with_only_half_written_checkpoints_is_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup(monkeypatch)
+    _crashed_run(tmp_path)
+    _checkpoints(tmp_path, 25, partial=(25,))
+    with pytest.raises(sft.ResumeError, match="complete"):
+        sft.run_sft(_cfg(tmp_path), resume=True)
+
+
+def test_half_written_checkpoint_alone_still_blocks_a_fresh_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup(monkeypatch)
+    _checkpoints(tmp_path, 25, partial=(25,))
+    with pytest.raises(sft.ResumeError, match="--resume"):
+        sft.run_sft(_cfg(tmp_path))
+
+
+def test_resume_refuses_when_current_run_is_scratch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup(monkeypatch, {**PROV, "scratch": True, "scratch_reason": "not editable"})
+    _crashed_run(tmp_path, 25)
+    with pytest.raises(sft.ResumeError, match="not editable"):
+        sft.run_sft(_cfg(tmp_path), resume=True)
+
+
+def test_resume_refuses_when_config_differs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _setup(monkeypatch)
+    _crashed_run(tmp_path, 25)
+    with pytest.raises(sft.ResumeError, match="config"):
+        sft.run_sft(_cfg(tmp_path, learning_rate=0.5), resume=True)
+    assert calls.resume_from == []
+
+
+def test_fresh_run_saves_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup(monkeypatch)
+    sft.run_sft(_cfg(tmp_path))
+    saved = json.loads((tmp_path / "config.json").read_text())
+    assert saved["model_name"] == "m"
+
+
+def test_scratch_without_original_provenance_is_flagged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup(monkeypatch)
+    _crashed_run(tmp_path, 25)
+    (tmp_path / "provenance.json").unlink()
+    summary = sft.run_sft(_cfg(tmp_path), resume=True, scratch=True)
+    assert summary["original_provenance_missing"] is True
+
+
+def test_resume_summary_notes_unrestored_mps_rng(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup(monkeypatch)
+    _crashed_run(tmp_path, 25)
+    summary = sft.run_sft(_cfg(tmp_path), resume=True)
+    assert "MPS" in summary["resume_note"]
+    assert "original_provenance_missing" not in summary
+
+
+def test_train_loss_is_computed_from_the_log_not_the_trainer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _setup(monkeypatch)
+    (tmp_path / "x").mkdir()
+    from post_training.train.common import train_loss_from_log
+
+    log = [{"loss": 2.0, "step": 1}, {"eval_loss": 9.0}, {"loss": 4.0, "step": 2}]
+    assert train_loss_from_log(log) == 3.0
 
 
 def test_cli_passes_resume_and_scratch(

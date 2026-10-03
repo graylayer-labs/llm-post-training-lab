@@ -16,7 +16,6 @@ from typing import Any
 
 from datasets import Dataset
 from peft import LoraConfig
-from transformers.trainer_utils import get_last_checkpoint
 
 from post_training.config import LoraSettings, SftConfig, to_dict
 from post_training.data.finance import Row, load_splits, to_messages
@@ -25,8 +24,11 @@ from post_training.train.common import (
     PeakMemoryCallback,
     ReleaseCacheCallback,
     bf16_supported,
+    checkpoint_dirs,
     device_report,
+    last_complete_checkpoint,
     load_model_and_tokenizer,
+    train_loss_from_log,
 )
 
 
@@ -97,27 +99,49 @@ def build_sft_args(cfg: SftConfig, n_train: int) -> Any:
     )
 
 
-def _check_resume(out: Path, current: dict[str, Any], scratch: bool) -> dict[str, Any]:
-    """Original provenance of the run in ``out``, or an error if code differs."""
-    saved = out / "provenance.json"
-    if not saved.exists():
-        if scratch:
-            return current
-        raise ResumeError(f"{saved} is missing; cannot tell which commit started it")
-    original = json.loads(saved.read_text())
+RESUME_NOTE = (
+    "The Trainer restores optimizer, scheduler and data order on resume, but "
+    "not the MPS random-number state. With LoRA dropout a resumed MPS run is "
+    "statistically equivalent to an uninterrupted one, not bit-identical "
+    "(on CPU it matched exactly). train_loss is the mean of logged losses; "
+    "wall_seconds, peak_memory_gb and trainer-side timings cover only the "
+    "resumed part."
+)
+
+
+def _check_resume(
+    out: Path, current: dict[str, Any], cfg: SftConfig, scratch: bool
+) -> tuple[dict[str, Any], bool]:
+    """Original provenance of the run in ``out`` and whether it was missing.
+
+    Raises ResumeError if the code, tree or config differ from the original
+    run, unless ``scratch``.
+    """
     problems = []
-    if current["commit"] != original["commit"]:
+    saved = out / "provenance.json"
+    missing = not saved.exists()
+    original = current if missing else json.loads(saved.read_text())
+    if missing:
+        problems.append(f"{saved} is missing; cannot tell which commit started it")
+    elif current["commit"] != original["commit"]:
         problems.append(
             f"commit is {current['commit']}, run started at {original['commit']}"
         )
     if current["dirty"]:
         problems.append("working tree is dirty")
+    elif current["scratch"]:
+        problems.append(f"this checkout is scratch ({current['scratch_reason']})")
+    saved_cfg = out / "config.json"
+    if not saved_cfg.exists():
+        problems.append(f"{saved_cfg} is missing; cannot check the config")
+    elif json.loads(saved_cfg.read_text()) != json.loads(json.dumps(to_dict(cfg))):
+        problems.append("config differs from the one the run started with")
     if problems and not scratch:
         raise ResumeError(
-            "; ".join(problems) + ". A resumed run must be one commit's code; "
-            "check out the original commit or pass --scratch."
+            "; ".join(problems) + ". A resumed run must be one commit's code "
+            "and one config; fix the above or pass --scratch."
         )
-    return original
+    return original, missing
 
 
 def run_sft(
@@ -127,22 +151,29 @@ def run_sft(
 
     out = Path(cfg.output_dir)
     ckpt_dir = out / "checkpoints"
-    last = get_last_checkpoint(str(ckpt_dir)) if ckpt_dir.is_dir() else None
-    if last and not resume:
+    if checkpoint_dirs(ckpt_dir) and not resume:
         raise ResumeError(
             f"{ckpt_dir} already holds checkpoints; pass --resume to continue "
             "that run or use a new output_dir. Nothing was changed."
         )
-    if resume and not last:
-        raise ResumeError(f"--resume given but no checkpoint under {ckpt_dir}")
+    last = last_complete_checkpoint(ckpt_dir)
+    if resume and last is None:
+        raise ResumeError(
+            f"--resume given but no complete checkpoint (one with "
+            f"trainer_state.json) under {ckpt_dir}"
+        )
 
     # Capture first: the record must describe the code that ran, not the tree
     # as it stands after training.
     current = run_provenance()
-    provenance = _check_resume(out, current, scratch) if resume else current
+    prov_missing = False
+    provenance = current
+    if resume:
+        provenance, prov_missing = _check_resume(out, current, cfg, scratch)
     out.mkdir(parents=True, exist_ok=True)
     if not resume:
         (out / "provenance.json").write_text(json.dumps(provenance, indent=1))
+        (out / "config.json").write_text(json.dumps(to_dict(cfg), indent=1))
     splits = load_splits(
         cfg.data.dataset,
         train_size=cfg.data.train_size,
@@ -182,9 +213,9 @@ def run_sft(
         before_file.write_text(json.dumps(eval_before, indent=1))
     resumed_at = datetime.now(UTC).isoformat(timespec="seconds")
     if resume:
-        train_result = trainer.train(resume_from_checkpoint=last)
+        trainer.train(resume_from_checkpoint=str(last))
     else:
-        train_result = trainer.train()
+        trainer.train()
     eval_after = trainer.evaluate()
     peft_model.save_pretrained(out / "adapter")
     tok.save_pretrained(out / "adapter")
@@ -200,12 +231,15 @@ def run_sft(
         "trainable_pct": round(100 * trainable / trainable_before, 3),
         "eval_loss_before": eval_before["eval_loss"],
         "eval_loss_after": eval_after["eval_loss"],
-        "train_loss": train_result.training_loss,
+        "train_loss": train_loss_from_log(trainer.state.log_history),
         "wall_seconds": round(time.time() - t0, 1),
         "log_history": trainer.state.log_history,
     }
     if resume:
         summary["resumed_from"] = int(Path(str(last)).name.split("-")[-1])
+        summary["resume_note"] = RESUME_NOTE
+        if prov_missing:
+            summary["original_provenance_missing"] = True
         summary["resumed_at"] = resumed_at
         summary["resume_provenance"] = current
         # Timing, peak memory and train_loss cover only the resumed part; the
