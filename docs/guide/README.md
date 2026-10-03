@@ -23,10 +23,16 @@ decisions and why, how to reproduce it, and what we would do differently.
 
 ## Chapters
 
-None yet. Chapters are written with `/guide` once a stage's results land.
+Chapters are written with `/guide` once a stage's results land.
 
 | # | Chapter | Last updated | From issues |
 |---|---|---|---|
+| 1 | [The problem and the data](01-the-problem-and-the-data.md) | 2026-10-03 | #15, #11, #12 |
+| 2 | [Supervised fine-tuning](02-supervised-fine-tuning.md) | 2026-10-03 | #12, #1 |
+| 3 | [The stop-token bug](03-the-stop-token-bug.md) | 2026-10-03 | #19, #12, #1 |
+| 4 | [Trustworthy runs](04-trustworthy-runs.md) | 2026-10-03 | #10, #11, #15, #21, #23, #12 |
+| 5 | [Preference optimisation (DPO)](05-preference-optimisation.md) | 2026-10-03 | #2, #26 |
+| 6 | [Evaluating without a benchmark](06-evaluating-without-a-benchmark.md) | 2026-10-03 | #3, #23 |
 
 ## Notes
 
