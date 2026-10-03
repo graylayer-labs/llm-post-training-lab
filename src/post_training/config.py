@@ -79,10 +79,17 @@ class SftConfig:
 
 @dataclass(frozen=True)
 class SystemSettings:
-    """One system to evaluate: the base model, plus a LoRA adapter or none."""
+    """One system to evaluate: the base model, plus a LoRA adapter or none.
+
+    ``base_adapter`` is for an adapter trained on top of another one, such as
+    DPO's LoRA on the merged SFT model: the base adapter is merged into the
+    base weights first, the same way as in training, then ``adapter`` is
+    applied.
+    """
 
     name: str
     adapter: str | None = None
+    base_adapter: str | None = None
 
 
 def _default_systems() -> tuple[SystemSettings, ...]:

@@ -347,6 +347,97 @@ def test_model_revision_is_resolved_from_the_hub_cache_snapshot(
     assert harness.model_revision("Qwen/Qwen2.5-0.5B") == "060db64"
 
 
+# --- systems stacked on a merged base adapter (DPO) ---------------------------
+
+
+class StackedLoader:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    def __call__(self, model_name: str, base_adapter: str, adapter: str) -> Any:
+        self.calls.append((model_name, base_adapter, adapter))
+        return _model(), HarnessTok()
+
+
+def _stacked_cfg(
+    tmp_path: Path, base_adapter: str | None, meta_sha: str | None = None
+) -> EvalConfig:
+    cfg = _cfg(tmp_path)
+    sft = tmp_path / "adapter"
+    dpo = tmp_path / "dpo_adapter"
+    dpo.mkdir(exist_ok=True)
+    (dpo / "adapter_config.json").write_text("{}")
+    (dpo / "adapter_model.safetensors").write_bytes(b"dpo-weights")
+    sha = meta_sha or harness.adapter_hash(sft)
+    (dpo / "base_adapter.json").write_text(
+        json.dumps({"path": str(sft), "sha256": sha})
+    )
+    return dataclasses.replace(
+        cfg,
+        systems=(
+            SystemSettings("base", None),
+            SystemSettings("dpo", str(dpo), base_adapter=base_adapter),
+        ),
+    )
+
+
+def test_stacked_system_loads_on_the_merged_base_adapter(tmp_path: Path) -> None:
+    sft = str(tmp_path / "adapter")
+    cfg = _stacked_cfg(tmp_path, sft)
+    stacked = StackedLoader()
+    loader = Loader()
+    res = run_eval(cfg, load=loader, load_stacked=stacked)
+    dpo = str(tmp_path / "dpo_adapter")
+    assert stacked.calls == [("stub", sft, dpo)]
+    assert dpo not in loader.calls
+    sha = harness.adapter_hash(Path(sft))
+    row = _system(res, "dpo")
+    assert row["base_adapter"] == sft
+    assert row["base_adapter_sha256"] == sha
+    key_line = (Path(cfg.output_dir) / "generations" / "dpo.jsonl").read_text()
+    key = json.loads(key_line.splitlines()[0])["cache_key"]
+    assert key["base_adapter_sha256"] == sha
+    assert _system(res, "base")["base_adapter_sha256"] is None
+
+
+def test_changed_base_adapter_invalidates_the_cache(tmp_path: Path) -> None:
+    sft = tmp_path / "adapter"
+    run_eval(
+        _stacked_cfg(tmp_path, str(sft)), load=Loader(), load_stacked=StackedLoader()
+    )
+    cfg = _stacked_cfg(tmp_path, str(sft))  # resets the SFT weights to v1
+    (sft / "adapter_model.safetensors").write_bytes(b"weights-v2")
+    meta = tmp_path / "dpo_adapter" / "base_adapter.json"
+    meta.write_text(json.dumps({"path": str(sft), "sha256": harness.adapter_hash(sft)}))
+    res = run_eval(cfg, load=Loader(), load_stacked=StackedLoader())
+    assert _system(res, "dpo")["rows_from_cache"] == 0
+
+
+def test_adapter_trained_on_a_base_adapter_needs_it_configured(
+    tmp_path: Path,
+) -> None:
+    cfg = _stacked_cfg(tmp_path, None)
+    with pytest.raises(ValueError, match="base_adapter"):
+        run_eval(cfg, load=Loader(), load_stacked=StackedLoader())
+
+
+def test_base_adapter_with_another_hash_is_refused(tmp_path: Path) -> None:
+    cfg = _stacked_cfg(tmp_path, str(tmp_path / "adapter"), meta_sha="0" * 64)
+    with pytest.raises(ValueError, match="sha256"):
+        run_eval(cfg, load=Loader(), load_stacked=StackedLoader())
+
+
+def test_shipped_eval_config_stacks_dpo_on_sft() -> None:
+    from post_training.config import load_config
+
+    root = Path(__file__).resolve().parents[1]
+    cfg = load_config(root / "configs" / "eval.yaml", EvalConfig)
+    dpo = next(s for s in cfg.systems if s.name == "dpo")
+    assert dpo.base_adapter == "outputs/sft/adapter"
+    sft = next(s for s in cfg.systems if s.name == "sft")
+    assert sft.base_adapter is None
+
+
 def test_model_revision_is_none_when_not_cached(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

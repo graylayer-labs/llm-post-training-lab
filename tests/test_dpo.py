@@ -142,7 +142,7 @@ def models(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
 _REAL_LOAD = dpo.load_sft_merged
 
 
-def _load_cpu(model_name: str, adapter: str) -> tuple[Any, Any]:
+def _load_cpu(model_name: str, adapter: str, **_: Any) -> tuple[Any, Any]:
     return _REAL_LOAD(model_name, adapter, dtype=torch.float32, device="cpu")
 
 
@@ -394,6 +394,54 @@ def test_tiny_run_records_reference_logps_and_held_out(
     assert not (out / "checkpoints").exists()
     saved = json.loads((out / "summary.json").read_text())
     assert saved["reference"]["model"] == "sft"
+
+
+PROBE = torch.tensor([[1, 7, 8, 2, 1, 9, 10, 23, 24, 2]])
+
+
+class CaptureLogits(TrainerCallback):
+    """Logits of the in-memory policy at the end of training."""
+
+    logits: torch.Tensor | None = None
+
+    def on_train_end(self, args: Any, state: Any, control: Any, **kw: Any) -> None:
+        model = kw["model"]
+        model.eval()
+        with torch.no_grad():
+            self.logits = model(input_ids=PROBE.to(model.device)).logits.cpu()
+
+
+def test_run_records_which_base_adapter_the_lora_sits_on(
+    models: dict[str, Any], tmp_path: Path, cpu_run: None
+) -> None:
+    run, pdir = _write_inputs(tmp_path, models)
+    dpo.run_dpo(_cfg(tmp_path, run, pdir))
+    meta = json.loads((tmp_path / "out" / "adapter" / "base_adapter.json").read_text())
+    assert meta == {
+        "path": str(run / "adapter"),
+        "sha256": adapter_hash(run / "adapter"),
+    }
+
+
+def test_harness_loads_the_policy_that_was_trained(
+    models: dict[str, Any], tmp_path: Path, cpu_run: None
+) -> None:
+    from post_training.eval import harness
+
+    run, pdir = _write_inputs(tmp_path, models)
+    cap = CaptureLogits()
+    dpo.run_dpo(_cfg(tmp_path, run, pdir), extra_callbacks=[cap])
+    assert cap.logits is not None
+    out = str(tmp_path / "out" / "adapter")
+    model, _ = harness.load_stacked(
+        models["base"], str(run / "adapter"), out, dtype=torch.float32, device="cpu"
+    )
+    with torch.no_grad():
+        got = model.eval()(input_ids=PROBE).logits
+        plain = PeftModel.from_pretrained(_plain_base(models), out).eval()
+        on_base = plain(input_ids=PROBE).logits
+    assert torch.allclose(got, cap.logits, atol=1e-4)
+    assert not torch.allclose(on_base, cap.logits, atol=1e-2)
 
 
 def test_edited_pairs_file_is_refused(

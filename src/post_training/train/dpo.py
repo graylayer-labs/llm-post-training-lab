@@ -48,6 +48,7 @@ from post_training.eval.harness import adapter_hash
 from post_training.run import run_provenance
 from post_training.train.checkpoint import (
     RESUME_NOTE,
+    ResumeError,
     check_resume,
     plan_start,
 )
@@ -59,7 +60,7 @@ from post_training.train.common import (
     pick_device,
     train_loss_from_log,
 )
-from post_training.train.sft import ResumeError, build_lora_config
+from post_training.train.sft import build_lora_config
 
 __all__ = ["ResumeError", "run_dpo"]
 
@@ -306,6 +307,11 @@ def run_dpo(
     eval_after = trainer.evaluate()
     peft_model.save_pretrained(out / "adapter")
     tok.save_pretrained(out / "adapter")
+    # The LoRA only means something on merge(base, SFT adapter); record which,
+    # so the eval harness can refuse to load it anywhere else.
+    (out / "adapter" / "base_adapter.json").write_text(
+        json.dumps({"path": str(adapter), "sha256": a_hash})
+    )
 
     log = trainer.state.log_history
     traj = _trajectory(log)

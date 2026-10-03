@@ -42,6 +42,7 @@ from post_training.generate import generate, stop_token_ids
 from post_training.run import run_provenance
 
 Loader = Callable[[str, str | None], tuple[Any, Any]]
+StackedLoader = Callable[[str, str, str], tuple[Any, Any]]
 
 RULES = ("format", "clean_stop", "repetition", "domain_terms", "ungrounded_numbers")
 PERPLEXITY_NOTE = (
@@ -227,6 +228,55 @@ def _default_loader(model_name: str, adapter: str | None) -> tuple[Any, Any]:
     return load_model_and_tokenizer(model_name, adapter)
 
 
+def load_stacked(
+    model_name: str,
+    base_adapter: str,
+    adapter: str,
+    *,
+    dtype: Any = None,
+    device: str | None = None,
+) -> tuple[Any, Any]:
+    """merge(base, base_adapter) + adapter: how DPO's policy was trained.
+
+    The merge goes through the same function as training, so the bf16
+    rounding of the merged weights is the same too.
+    """
+    import torch
+    from peft import PeftModel
+
+    from post_training.train.dpo import load_sft_merged
+
+    merged, tok = load_sft_merged(
+        model_name, base_adapter, dtype=dtype or torch.bfloat16, device=device
+    )
+    return PeftModel.from_pretrained(merged, adapter), tok
+
+
+def _check_base_adapter(system: SystemSettings) -> str | None:
+    """sha256 of the system's base adapter; raise if it is wrong or missing.
+
+    An adapter trained on a merged base adapter carries ``base_adapter.json``
+    (path and sha256). Loading it without that base, or on another one, would
+    score a model that was never trained.
+    """
+    meta_file = Path(str(system.adapter)) / "base_adapter.json"
+    meta = json.loads(meta_file.read_text()) if meta_file.is_file() else None
+    if system.base_adapter is None:
+        if meta is not None:
+            raise ValueError(
+                f"{system.name}: {system.adapter} was trained on top of "
+                f"{meta['path']}; set base_adapter for this system"
+            )
+        return None
+    sha = adapter_hash(Path(system.base_adapter))
+    if meta is not None and meta["sha256"] != sha:
+        raise ValueError(
+            f"{system.name}: base_adapter {system.base_adapter} has sha256 "
+            f"{sha[:12]}, but the adapter was trained on {meta['sha256'][:12]}"
+        )
+    return sha
+
+
 def _release(model: Any) -> None:
     from post_training.train.common import release_accelerator_cache
 
@@ -243,15 +293,24 @@ def _score_system(
     gen_dir: Path,
     load: Loader,
     first_ids: dict[str, str],
+    load_stacked: StackedLoader = load_stacked,
 ) -> dict[str, Any]:
     """Score one system. ``first_ids`` holds the first scored system's hash
     of the first row's prompt ids; every later system must match it."""
-    out: dict[str, Any] = {"name": system.name, "adapter": system.adapter}
+    out: dict[str, Any] = {
+        "name": system.name,
+        "adapter": system.adapter,
+        "base_adapter": system.base_adapter,
+    }
     if reason := _skip_reason(system):
         return {**out, "status": "skipped", "reason": reason}
     t0 = time.time()
     a_hash = adapter_hash(Path(system.adapter)) if system.adapter else None
-    model, tok = load(cfg.model_name, system.adapter)
+    b_hash = _check_base_adapter(system) if system.adapter else None
+    if system.base_adapter and system.adapter:
+        model, tok = load_stacked(cfg.model_name, system.base_adapter, system.adapter)
+    else:
+        model, tok = load(cfg.model_name, system.adapter)
     model.eval()
     try:
         ids = chat_ids(tok, prompt_messages(rows[0]), add_generation_prompt=True)
@@ -271,6 +330,8 @@ def _score_system(
             "system": system.name,
             "adapter": system.adapter,
             "adapter_sha256": a_hash,
+            "base_adapter": system.base_adapter,
+            "base_adapter_sha256": b_hash,
             "model_name": cfg.model_name,
             **identity,
             "prompt_set_sha256": p_hash,
@@ -305,6 +366,7 @@ def _score_system(
         **out,
         "status": "scored",
         "adapter_sha256": a_hash,
+        "base_adapter_sha256": b_hash,
         **identity,
         "first_prompt_ids_sha256": ids_hash,
         "generation_settings": key["generation"],
@@ -385,7 +447,12 @@ def render_markdown(results: dict[str, Any]) -> str:
 _NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
-def run_eval(cfg: EvalConfig, *, load: Loader = _default_loader) -> dict[str, Any]:
+def run_eval(
+    cfg: EvalConfig,
+    *,
+    load: Loader = _default_loader,
+    load_stacked: StackedLoader = load_stacked,
+) -> dict[str, Any]:
     """Score every system in ``cfg`` and write results.json and results.md."""
     provenance = run_provenance()
     names = [s.name for s in cfg.systems]
@@ -402,7 +469,7 @@ def run_eval(cfg: EvalConfig, *, load: Loader = _default_loader) -> dict[str, An
 
     first_ids: dict[str, str] = {}
     systems = [
-        _score_system(cfg, s, rows, p_hash, gen_dir, load, first_ids)
+        _score_system(cfg, s, rows, p_hash, gen_dir, load, first_ids, load_stacked)
         for s in cfg.systems
     ]
     results = {
