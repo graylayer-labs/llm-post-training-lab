@@ -38,6 +38,42 @@ def test_build_lora_config_without_token_ids_trains_no_embeddings() -> None:
     assert build_lora_config(LoraSettings()).trainable_token_indices is None
 
 
+def test_run_sft_summary_records_data_stats(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import trl
+
+    from post_training.config import SftConfig
+    from post_training.data.finance import FinanceSplits
+    from post_training.train import sft as sft_mod
+
+    row = {"instruction": "q", "input": "", "output": "a" * 50}
+    splits = FinanceSplits(train=[row] * 3, eval=[row], duplicates_dropped=7)
+    param = SimpleNamespace(numel=lambda: 10, requires_grad=True)
+    model = MagicMock()
+    model.parameters.side_effect = lambda: iter([param])
+    trainer = MagicMock()
+    trainer.model.parameters.side_effect = lambda: iter([param])
+    trainer.evaluate.return_value = {"eval_loss": 1.0}
+    trainer.train.return_value = SimpleNamespace(training_loss=0.5)
+    trainer.state.log_history = []
+    monkeypatch.setattr(sft_mod, "load_splits", lambda *a, **k: splits)
+    monkeypatch.setattr(
+        sft_mod, "load_model_and_tokenizer", lambda name: (model, MagicMock())
+    )
+    monkeypatch.setattr(sft_mod, "build_sft_args", lambda *a, **k: None)
+    monkeypatch.setattr(sft_mod, "to_chat_dataset", lambda rows: None)
+    monkeypatch.setattr(sft_mod, "build_lora_config", lambda *a, **k: None)
+    monkeypatch.setattr(sft_mod, "device_report", lambda: "test")
+    monkeypatch.setattr(trl, "SFTTrainer", lambda **k: trainer)
+
+    summary = sft_mod.run_sft(SftConfig(model_name="m", output_dir=str(tmp_path)))
+
+    expected = {"train_rows": 3, "eval_rows": 1, "duplicates_dropped": 7}
+    assert summary["data_stats"] == expected
+
+
 def test_sft_args_use_unchunked_loss_and_completion_masking(tmp_path) -> None:
     from post_training.config import SftConfig
     from post_training.train.sft import build_sft_args
