@@ -108,8 +108,9 @@ Copied from `outputs/eval/results.md`.
 
 The per-prompt comparisons below come from
 `outputs/eval/analysis.json`, written by `tools/compare_systems.py` at
-commit `b872427` on a clean tree (`provenance` in the file, `scratch`
-false). The tool reads only the saved generations and the eval rows, on
+commit `afe00a1` on `main`, clean tree (`provenance` in the file,
+`scratch` false). It was first run at branch commit `b872427`, before
+merge; the re-run from `main` gives identical figures. The tool reads only the saved generations and the eval rows, on
 CPU. It re-scores every answer with the same rubric. Its totals match
 `results.json`: overall passes 70, 146 and 178; ROUGE-L 0.153, 0.297 and
 0.296.
