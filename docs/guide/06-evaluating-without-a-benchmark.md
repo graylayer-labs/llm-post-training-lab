@@ -56,7 +56,7 @@ breaks 12 relative to base, so no change is one-way.
 
 Chapter 5 flagged that DPO may only have learned "shorter". The saved
 generations can test part of it, with `tools/compare_systems.py` at commit
-`b872427` ([eval-results.md][res-short]):
+`afe00a1` ([eval-results.md][res-short]):
 
 - Where SFT already stopped (173 prompts), DPO is still shorter: 50.4
   tokens against 69.1, and slightly further from the references (ROUGE-L

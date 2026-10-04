@@ -12,7 +12,7 @@ The results docs hold the detail:
 - [sft-results.md](sft-results.md): Part 1, LoRA SFT, commit `76739e6`.
 - [dpo-results.md](dpo-results.md): Part 2, pairs and DPO, commit `0263788`.
 - [eval-results.md](eval-results.md): Part 3, the three-way eval, commit
-  `76c9086`, the length check at `b872427`, and the blind correctness check
+  `76c9086`, the length check at `afe00a1`, and the blind correctness check
   of 50 prompts, graded at `66b837b`.
 - [memory-and-scale.md](memory-and-scale.md): where the memory goes, and
   the 70B reasoning.
@@ -71,7 +71,7 @@ on 39.5% of prompts and runs 121 answers to the 384-token limit. After SFT
 it stops on 86.5% and 27 answers hit the limit
 ([eval-results.md](eval-results.md), "SFT against base";
 `outputs/eval/analysis.json`, `systems.*.lengths.at_limit`, commit
-`b872427`). Mean new tokens fell from 270.0 to 111.6, the median from 384
+`afe00a1`). Mean new tokens fell from 270.0 to 111.6, the median from 384
 to 66.
 
 **Register (illustrative Part 1 samples).** In the Part 1 samples, the

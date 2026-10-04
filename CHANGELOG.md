@@ -82,7 +82,7 @@ each links to the issue that holds the detail.
   the references: 8.910, 6.245, 6.555. ROUGE-L: 0.153, 0.297, 0.296. Wall
   time 1,562.8 s, contended by other GPU jobs. No model judge.
   ([results](docs/eval-results.md), [#3](https://github.com/graylayer-labs/llm-post-training-lab/issues/3))
-- Length check on the saved generations at commit `b872427`: DPO's answers
+- Length check on the saved generations at commit `afe00a1`: DPO's answers
   are shorter than SFT's even where SFT already stopped (50.4 against 69.1
   mean tokens on 173 prompts), with slightly lower ROUGE-L there (0.314
   against 0.330). DPO's gain is plausibly partly "shorter", not only "no
