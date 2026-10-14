@@ -27,7 +27,7 @@ jobs:
       - run: uv sync --dev --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run ty check
+      - run: uv run ty check --error-on-warning
       - run: uv run --locked --with pytest-cov==7.1.0 pytest --cov=post_training --cov-report=xml --cov-report=term
       - name: Coverage of changed lines (80% minimum)
         if: github.event_name == 'pull_request'
