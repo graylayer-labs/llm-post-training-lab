@@ -36,3 +36,14 @@ jobs:
         run: >-
           uvx diff-cover@10.6.0 coverage.xml --compare-branch="origin/$BASE_REF"
           --fail-under=80
+
+  # The org's shared CI (graylayer-labs/.github, ci-python.yml). Reports as
+  # "checks / checks". Runs beside the inline job above until main requires
+  # "checks / checks" (#50); then the inline job is removed.
+  shared:
+    name: checks
+    permissions:
+      contents: read
+    uses: graylayer-labs/.github/.github/workflows/ci-python.yml@49eec92db441e22e6717bc02d5262ed78a4aefc6 # pre-release (graylayer-labs/.github#19 head); re-pin to v1.0.0 before merge
+    with:
+      coverage-source: post_training
